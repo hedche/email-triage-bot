@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Block commits that introduce secrets. Scans only what is staged, so it
+# stays fast (well under a second on a normal diff).
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks     # or: make hooks
+#
+# Escape hatch for a known false positive:
+#   SKIP_GITLEAKS=1 git commit ...
+# Prefer adding a narrow allowlist entry to .gitleaks.toml instead — a
+# bypass that becomes habit is the failure mode this hook exists to avoid.
+
+set -euo pipefail
+
+[[ "${SKIP_GITLEAKS:-}" == "1" ]] && exit 0
+
+if ! command -v gitleaks &>/dev/null; then
+    echo "pre-commit: gitleaks not found — install it with: brew install gitleaks" >&2
+    echo "            (or bypass once with SKIP_GITLEAKS=1 git commit ...)" >&2
+    exit 1
+fi
+
+if ! gitleaks git --staged --redact --no-banner --config .gitleaks.toml; then
+    cat >&2 <<'MSG'
+
+pre-commit: BLOCKED — gitleaks found a secret in the staged changes.
+
+  Real secret?      Remove it from the diff. Gmail refresh tokens, Gemini and
+                    OpenAI-compatible API keys and Telegram tokens belong in
+                    the Nature secrets file, outside every repo.
+                    If it was ever pushed, rotate it — scrubbing history
+                    is cleanup, rotation is the fix.
+  False positive?   Add a narrow entry to .gitleaks.toml, or append
+                    `# gitleaks:allow` to the offending line.
+
+MSG
+    exit 1
+fi

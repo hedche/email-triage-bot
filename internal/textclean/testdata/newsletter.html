@@ -1,0 +1,26 @@
+<html>
+  <head>
+    <style type="text/css">
+      body { font-family: Helvetica, Arial, sans-serif; color: #222 }
+      .hidden { display: none }
+    </style>
+    <script>
+      var trackPixel = new Image(); trackPixel.src = "https://track.example/open?id=42";
+    </script>
+  </head>
+  <body>
+    <!-- preheader: do not display -->
+    <div class="wrapper">
+      <p>Your order has been&#8203; dispatched</p>
+      <p>Hello Alex,</p>
+      <div>Your parcel is with the courier and should arrive on
+        <b>Thursday</b>. You can <a href="https://example.com/track?id=42&amp;src=email">track it here</a>.</div>
+      <ul>
+        <li>1 &times; USB-C cable</li>
+        <li>2 &times; AA batteries</li>
+      </ul>
+      <p>Thanks for shopping with us &mdash; the Dispatch Team</p>
+    </div>
+    <script>document.write("more tracking");</script>
+  </body>
+</html>

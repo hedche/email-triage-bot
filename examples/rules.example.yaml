@@ -1,0 +1,82 @@
+# Example Rules file for the Email Triage Bot.
+#
+# The live copy of this file is NOT in this repository. It holds protected
+# addresses and the brands a person actually buys from, so it lives as the
+# `rules.yaml` entry of the `email-triage-rules` Secret in the Nature secrets
+# file and is mounted at RULES_FILE (default /config/rules.yaml).
+# See docs/adr/0004-preferences-deployed-via-secrets-pipeline.md.
+#
+# Tiers are evaluated in a fixed order and the first match wins:
+#   protect -> senders -> keywords -> brands
+# Everything unmatched is left alone and never sent to the Judge.
+#
+# All comparisons are case-insensitive. `domain` matches the domain and any
+# subdomain. `sender`/`address` match the address only, never the display
+# name. `keyword`/`subject` are substring matches on the subject.
+
+# Confidence at or above which a judged Candidate is marked read.
+# Below it the Verdict is leave. 0.8 is a sensible starting point; raise it
+# if the bot is marking things read you wanted to see.
+threshold: 0.8
+
+# Tier 1 — Protect. Nothing here is ever touched, whatever else matches.
+# Put people, and anything you would be annoyed to find already read.
+protect:
+  - sender: alice@example.com
+    note: a real person
+  - domain: example.school            # includes subdomains
+    note: anything from the school
+  - keyword: invoice                  # case-insensitive subject substring
+    note: money always gets a look
+
+# Tier 2 — Senders. Always marked read, no AI involved.
+# Use this for machines that never say anything you need to act on.
+senders:
+  - address: noreply@example-forge.com
+    note: repository notifications
+  - domain: example-post.com
+    note: parcel tracking updates
+
+# Tier 3 — Keywords. Always marked read when the subject contains the string.
+# Keep these specific; a short substring will catch more than you meant.
+keywords:
+  - subject: your weekly digest
+    note: newsletter round-ups
+  - subject: receipt for your subscription
+
+# Tier 4 — Brands. A Message mentioning the brand in its sender name, sender
+# domain or subject becomes a Candidate and is sent to the Judge, which returns
+# a Confidence and a Reason. Everything else about the brand's mail is decided
+# by the model, so the note and examples are where you steer it.
+#
+# Examples describe a KIND of message. Never paste real subjects or bodies
+# here: this file leaves your machine and the descriptions go into the prompt.
+brands:
+  - name: Example Retailer
+    note: >-
+      Order, dispatch and delivery notifications are routine. Payment
+      problems, refunds and account security mail are not.
+    examples:
+      - description: Dispatch confirmation for an order
+        verdict: mark-read
+      - description: Unusual sign-in attempt on the account
+        verdict: leave
+  - name: Example Energy
+    note: Monthly statements and meter reading reminders are routine.
+  - name: Example Streaming
+    # No note: the Judge falls back to deciding what is routine for the brand
+    # on its own. Add a note as soon as it gets one wrong.
+
+# Optional per-account additions. These are merged additively on top of the
+# global rules above for that account only — nothing is overridden or removed.
+accounts:
+  someone@example.com:
+    protect:
+      - sender: boss@example.com
+    brands:
+      - name: Example Energy
+        note: This account gets the business tariff mail; leave anything about contracts.
+  someone.else@example.com:
+    senders:
+      - domain: example-club.org
+        note: club mailing list this person does not read

@@ -1,0 +1,12 @@
+threshold: 0.8
+protect:
+  - domain: royalmail.com
+    note: a parcel is worth seeing after all
+senders:
+  - address: ship@amazon.co.uk
+brands:
+  - name: Octopus Energy
+accounts:
+  me@example.com:
+    brands:
+      - name: Octopus Energy

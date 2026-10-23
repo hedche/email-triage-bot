@@ -1,0 +1,41 @@
+# Build output
+/email-triage-bot
+/dist/
+*.exe
+
+# Test and coverage artefacts
+coverage.out
+coverage.html
+*.test
+
+# Local configuration and secrets
+.env
+.env.local
+.env.*
+!.env.example
+
+# Live rules and accounts: these hold protected addresses and refresh tokens
+# and live in the Nature secrets file, never here. See docs/adr/0004.
+# Anchored to the repo root so that test fixtures under internal/*/testdata/
+# (which carry only placeholder values) are still committable.
+/rules.yaml
+/accounts.yaml
+/secrets.yaml
+*.token
+*credentials*.json
+*oauth*.json
+
+# Decision Logs and Feedback are personal mail metadata
+*.jsonl
+!**/testdata/*.jsonl
+
+# Cluster credentials
+kubeconfig
+*kubeconfig*
+talosconfig
+*talosconfig*
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/

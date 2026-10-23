@@ -1,0 +1,28 @@
+# Example Accounts file for the Email Triage Bot.
+#
+# The live copy of this file is NOT in this repository: it contains Gmail
+# refresh tokens, which are credentials. It lives as the `accounts.yaml` entry
+# of the `email-triage-accounts` Secret in the Nature secrets file and is
+# mounted at ACCOUNTS_FILE (default /config/accounts.yaml).
+#
+# Get a refresh token for each mailbox by running the local consent flow with
+# the OAuth desktop client credentials in your environment:
+#
+#   email-triage-bot auth --email someone@example.com
+#
+# It opens a browser, asks for the gmail.modify scope, and prints the refresh
+# token. Paste it below. If the consent screen is still in Testing mode the
+# token stops working after seven days — see the README's Gmail setup section.
+
+accounts:
+  - email: someone@example.com
+    refresh_token: "1//0xREPLACE-WITH-YOUR-REFRESH-TOKEN"
+    provider: gmail          # optional, default gmail
+
+  - email: someone.else@example.com
+    refresh_token: "1//0xREPLACE-WITH-YOUR-REFRESH-TOKEN"
+    # provider omitted: defaults to gmail
+
+# Every account listed here is processed in one Triage Run. The OAuth client
+# (GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET) is shared by all of them; only the
+# refresh token differs per mailbox.

@@ -1,0 +1,52 @@
+# gitleaks config for the email-triage-bot repo.
+#
+# Used by the .githooks/pre-commit hook and by any manual scan. Start from
+# gitleaks' built-in ruleset and add allowlists for the placeholder values
+# this repo legitimately commits.
+#
+# Keeping this allowlist tight matters: a hook that cries wolf on every
+# commit touching examples/ is a hook that gets bypassed with --no-verify,
+# which is worse than no hook at all.
+
+[extend]
+useDefault = true
+
+[[rules]]
+# Deny-by-name backstop. The live rules and accounts files are Secret entries
+# in the Nature secrets file (docs/adr/0004); accounts.yaml in particular
+# carries Gmail refresh tokens. This catches an attempt to commit one,
+# including via `git add -f`, which .gitignore alone would not stop.
+id = "triage-live-config"
+description = "Live rules/accounts files must never be committed — they live in the Nature secrets file"
+path = '''^(accounts|rules|secrets)\.(yaml|yml)$'''
+regex = '''(?s).*'''
+
+[rules.allowlist]
+# The committed examples and the package test fixtures carry only placeholder
+# values. The default gitleaks rules still scan both for real credential shapes.
+paths = [
+  '''(^|/)examples/.*\.example\.yaml$''',
+  '''(^|/)testdata/''',
+]
+
+[allowlist]
+description = "Placeholders in the examples and docs"
+
+regexes = [
+  # The refresh-token placeholder in examples/accounts.example.yaml and docs.
+  '''1//0xREPLACE-WITH-YOUR-REFRESH-TOKEN''',
+  # API key placeholders in .env.example and the README.
+  '''REPLACE-WITH-YOUR-[A-Z0-9-]+''',
+  # OAuth client id shape used as an example in the README.
+  '''[0-9]{12}-example\.apps\.googleusercontent\.com''',
+  # Template variables — Kubernetes manifests in Nature use these, and the
+  # README quotes them.
+  '''\$\{[A-Z0-9_]+\}''',
+]
+
+paths = [
+  # Decision Logs and Feedback are gitignored; if one is ever force-added the
+  # deny-by-name rules and .gitignore are the controls, not a full scan of
+  # a few thousand lines of mail metadata on every commit.
+  '''\.jsonl$''',
+]

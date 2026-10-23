@@ -1,0 +1,34 @@
+.git
+.github
+.githooks
+.claude
+.gitleaks.toml
+
+# Local configuration and anything derived from it
+.env
+.env.*
+!.env.example
+rules.yaml
+accounts.yaml
+*.jsonl
+
+# Build output
+/dist
+/email-triage-bot
+coverage.out
+coverage.html
+
+# Never in an image, never in a build context
+secrets.yaml
+*secret*.yaml
+kubeconfig
+*kubeconfig*
+talosconfig
+*talosconfig*
+
+# Docs and tooling add nothing to the binary
+docs
+examples
+*.md
+Makefile
+.DS_Store

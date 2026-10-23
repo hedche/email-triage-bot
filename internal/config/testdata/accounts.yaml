@@ -1,0 +1,6 @@
+accounts:
+  - email: SomeOne@Gmail.com
+    refresh_token: "1//aaaa"
+  - email: "  other@example.com  "
+    refresh_token: "1//bbbb"
+    provider: Gmail
