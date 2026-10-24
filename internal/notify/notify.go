@@ -22,6 +22,8 @@ const telegramAPI = "https://api.telegram.org"
 
 // Notifier delivers one summary message. Implementations must be safe to call
 // from a single goroutine and must not retry for longer than their timeout.
+// text is Telegram HTML (run.Summary.TelegramHTML): the only channel is
+// Telegram, and a Notifier that cannot render markup may strip or ignore it.
 type Notifier interface {
 	Notify(ctx context.Context, text string) error
 }
@@ -44,8 +46,10 @@ func NewTelegram(token, chatID string) Notifier {
 	}
 }
 
-// Notify posts text to the chat as a plain-text message with link previews
-// disabled, so a summary full of sender domains does not unfurl.
+// Notify posts text to the chat with link previews disabled, so a summary full
+// of sender domains does not unfurl. text is parsed as Telegram HTML, so every
+// value interpolated into it must already be escaped; an unescaped "<" makes
+// the API reject the whole message.
 func (t *telegram) Notify(ctx context.Context, text string) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -53,6 +57,7 @@ func (t *telegram) Notify(ctx context.Context, text string) error {
 	form := url.Values{
 		"chat_id":                  {t.chatID},
 		"text":                     {text},
+		"parse_mode":               {"HTML"},
 		"disable_web_page_preview": {"true"},
 	}
 	endpoint := strings.TrimSuffix(t.baseURL, "/") + "/bot" + t.token + "/sendMessage"

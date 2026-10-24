@@ -130,7 +130,7 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 
 	// Notifying and pinging are best-effort: neither can fail a run that
 	// otherwise did its job, and neither can rescue one that did not.
-	if err := r.opts.Notifier.Notify(ctx, sum.Text()); err != nil {
+	if err := r.opts.Notifier.Notify(ctx, sum.TelegramHTML()); err != nil {
 		r.log.Error("notify failed", "run_id", r.runID, "error", err.Error())
 	}
 	if !sum.Failed() && r.opts.Settings != nil && r.opts.Settings.HealthcheckPingURL != "" {

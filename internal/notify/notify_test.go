@@ -35,7 +35,7 @@ func TestTelegramNotifyPostsFormEncodedMessage(t *testing.T) {
 	if gotType != "application/x-www-form-urlencoded" {
 		t.Errorf("content-type = %q", gotType)
 	}
-	for _, want := range []string{"chat_id=-4242", "text=triage+run+ok", "disable_web_page_preview=true"} {
+	for _, want := range []string{"chat_id=-4242", "text=triage+run+ok", "disable_web_page_preview=true", "parse_mode=HTML"} {
 		if !strings.Contains(gotBody, want) {
 			t.Errorf("body %q missing %q", gotBody, want)
 		}

@@ -646,7 +646,7 @@ func TestDecisionLogRecordsEveryMessageWithoutTheBody(t *testing.T) {
 	}
 }
 
-func TestNotifierReceivesTheSummaryText(t *testing.T) {
+func TestNotifierReceivesTheSummaryHTML(t *testing.T) {
 	rules := &triage.Rules{Threshold: 0.8}
 	p := provider("a@example.com")
 	var got string
@@ -656,8 +656,8 @@ func TestNotifierReceivesTheSummaryText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if got != sum.Text() {
-		t.Errorf("notified %q, want %q", got, sum.Text())
+	if got != sum.TelegramHTML() {
+		t.Errorf("notified %q, want %q", got, sum.TelegramHTML())
 	}
 }
 
