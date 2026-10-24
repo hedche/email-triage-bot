@@ -111,6 +111,13 @@ Decision fields flattened plus `from`, `subject` truncated to 80 chars. One
 `duration_ms`, `dry_run`, `failed_accounts`. Exit code 1 if any account failed
 or any Judge call failed.
 
+Before any Account is triaged the run lists each one's unread IDs and compares
+them. A provider message ID is unique only within a mailbox, so one ID in
+common means two Accounts are one mailbox reached through two credentials —
+the shape a copied `refresh_token` takes. Both are skipped (`msg="account
+skipped"`, `shares_mailbox_with`) and reported as failures, because nothing
+says which name the credentials belong to.
+
 Two renderings of the same `run.Summary`, which must not be confused:
 `Summary.Text()` is plain text for stderr and the pod logs;
 `Summary.TelegramHTML()` is the notification, in Telegram's HTML parse mode.

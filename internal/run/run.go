@@ -108,7 +108,15 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		"judge", r.judgeName(),
 	)
 
+	shared := r.sharedMailboxes(ctx)
 	for _, p := range r.opts.Providers {
+		if others := shared[p.Account()]; len(others) > 0 {
+			err := fmt.Errorf("same mailbox as %s: neither was processed, so one mailbox is not triaged twice under two names — check refresh_token in accounts.yaml", strings.Join(others, ", "))
+			r.log.Error("account skipped",
+				"run_id", r.runID, "account", p.Account(), "shares_mailbox_with", others)
+			sum.add(AccountSummary{Account: p.Account(), Err: err})
+			continue
+		}
 		sum.add(r.runAccount(ctx, p))
 	}
 	sum.Duration = r.now().Sub(start)
@@ -140,6 +148,78 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	}
 
 	return sum, sum.Err()
+}
+
+// sharedMailboxes finds Accounts that are really one mailbox reached through
+// two sets of credentials, and returns, for each, the other addresses it
+// collides with.
+//
+// A provider message ID is only unique within a mailbox: the same mail
+// delivered to two real mailboxes gets a different ID in each. One ID in
+// common is therefore not a coincidence, it is the same mailbox answering
+// twice — the shape a copied refresh_token in accounts.yaml takes.
+//
+// The check runs before any Account is triaged because it has to: by the time
+// a duplicate is noticed mid-loop the first copy has already marked mail read,
+// and the audit labels then say a mailbox was triaged under a name that is not
+// its own. Both copies are skipped rather than one picked, because nothing
+// here says which of the two names the credentials actually belong to.
+//
+// A listing error is ignored. The Account's own run will hit it again and
+// report it properly; guessing at a collision from a failed listing would
+// only turn one error into two.
+func (r *Runner) sharedMailboxes(ctx context.Context) map[string][]string {
+	if len(r.opts.Providers) < 2 {
+		return nil
+	}
+	s := r.opts.Settings
+	q := mail.Query{
+		LookbackDays:  s.LookbackDays,
+		ExcludeLabels: []string{s.LabelRead, s.LabelLeft},
+		Max:           s.MaxMessagesPerAccount,
+	}
+
+	owner := make(map[string]string)      // message ID -> first Account that listed it
+	collided := make(map[string][]string) // Account -> others sharing its mailbox
+	link := func(a, b string) {
+		for _, seen := range collided[a] {
+			if seen == b {
+				return
+			}
+		}
+		collided[a] = append(collided[a], b)
+		collided[b] = append(collided[b], a)
+	}
+
+	for _, p := range r.opts.Providers {
+		ids, err := listForPreflight(ctx, p, q)
+		if err != nil {
+			continue
+		}
+		for _, id := range ids {
+			if first, ok := owner[id]; ok && first != p.Account() {
+				link(first, p.Account())
+				break
+			}
+			owner[id] = p.Account()
+		}
+	}
+	if len(collided) == 0 {
+		return nil
+	}
+	return collided
+}
+
+// listForPreflight lists one Account's unread IDs, turning a panic into an
+// error. The preflight runs outside runAccount's recover, and a Provider that
+// panics here must still cost only its own Account, not the whole run.
+func listForPreflight(ctx context.Context, p mail.Provider, q mail.Query) (ids []string, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			ids, err = nil, fmt.Errorf("panic: %v", rec)
+		}
+	}()
+	return p.ListUnread(ctx, q)
 }
 
 // runAccount triages one Account, turning a panic or an error into
