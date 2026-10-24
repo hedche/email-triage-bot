@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // AccountSummary is what one Account's share of a Triage Run came to.
@@ -141,4 +142,137 @@ func (s Summary) logAccounts() []map[string]any {
 		out = append(out, m)
 	}
 	return out
+}
+
+// TelegramHTML renders the summary as the message the run sends to Telegram.
+//
+// HTML is the parse mode rather than MarkdownV2 because it needs only three
+// characters escaped, so an address, a brand or a provider error interpolates
+// without the escaping bugs MarkdownV2's eighteen reserved characters invite.
+// The layout uses no <pre> block: Telegram scrolls those horizontally on a
+// phone instead of wrapping, which is what makes an aligned table unreadable
+// there. Anything that needs attention — a failed Account, a failed-closed
+// Candidate — sits above the per-account detail, never inside the collapsed
+// quote, so a problem is never a tap away.
+func (s Summary) TelegramHTML() string {
+	var b strings.Builder
+
+	icon := "✅"
+	switch {
+	case s.Failed():
+		icon = "❌"
+	case s.DryRun:
+		icon = "🧪"
+	}
+	b.WriteString(icon + " <b>Email triage</b>")
+	if s.DryRun {
+		b.WriteString("\n<i>Dry run — no mail was changed.</i>")
+	}
+
+	verb := "marked read"
+	if s.DryRun {
+		verb = "would be marked read"
+	}
+	fmt.Fprintf(&b, "\n\n<b>%d</b> %s · %d left · %d unmatched", s.MarkedRead, verb, s.Left, s.Unmatched)
+	fmt.Fprintf(&b, "\n<i>%d scanned across %s in %s</i>",
+		s.Scanned, plural(len(s.Accounts), "account"), shortDuration(s.Duration))
+
+	for _, a := range s.Accounts {
+		if a.Err != nil {
+			fmt.Fprintf(&b, "\n\n❌ <b>%s</b>\n%s", escapeHTML(a.Account), escapeHTML(truncate(a.Err.Error(), errMax)))
+		}
+	}
+	if s.JudgeErrors > 0 {
+		fmt.Fprintf(&b, "\n\n⚠️ <b>%s failed closed</b> and were left unread.", plural(s.JudgeErrors, "candidate"))
+	}
+
+	if len(s.Accounts) > 0 {
+		b.WriteString("\n\n<blockquote expandable>")
+		for i, a := range s.Accounts {
+			if i > 0 {
+				b.WriteString("\n\n")
+			}
+			fmt.Fprintf(&b, "%s <b>%s</b>\n%s", accountIcon(a), escapeHTML(a.Account), accountCounts(a))
+		}
+		b.WriteString("</blockquote>")
+	}
+
+	fmt.Fprintf(&b, "\n\n<code>%s</code>", escapeHTML(s.RunID))
+	return b.String()
+}
+
+// errMax caps one Account's error text. Provider errors are unbounded, and a
+// message over Telegram's 4096 characters is rejected outright — losing the
+// whole summary exactly when it reports a failure.
+const errMax = 300
+
+// accountIcon is the one-glyph verdict for an Account, so a run can be read
+// down the left margin without parsing any numbers.
+func accountIcon(a AccountSummary) string {
+	switch {
+	case a.Err != nil:
+		return "❌"
+	case a.JudgeErrors > 0:
+		return "⚠️"
+	case a.MarkedRead > 0:
+		return "📭"
+	default:
+		return "💤"
+	}
+}
+
+// accountCounts renders one Account's counts, dropping the zeros. A quiet
+// mailbox should read as one short line, not as five fields of nothing.
+func accountCounts(a AccountSummary) string {
+	parts := []string{fmt.Sprintf("%d scanned", a.Scanned)}
+	if a.MarkedRead > 0 {
+		parts = append(parts, fmt.Sprintf("<b>%d</b> read", a.MarkedRead))
+	}
+	if a.Left > 0 {
+		parts = append(parts, fmt.Sprintf("%d left", a.Left))
+	}
+	if a.Unmatched > 0 {
+		parts = append(parts, fmt.Sprintf("%d unmatched", a.Unmatched))
+	}
+	if a.JudgeCalls > 0 {
+		parts = append(parts, fmt.Sprintf("judge %s", plural(a.JudgeCalls, "call")))
+	}
+	if a.JudgeErrors > 0 {
+		parts = append(parts, fmt.Sprintf("<b>%s</b>", plural(a.JudgeErrors, "judge error")))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// escapeHTML escapes the three characters Telegram's HTML parse mode reserves.
+// html.EscapeString is not used: it also emits numeric references for quotes,
+// which Telegram's parser does not define.
+var escapeHTML = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// shortDuration trades precision for width: whole seconds for a real run, and
+// milliseconds only when rounding would print a bare "0s".
+func shortDuration(d time.Duration) string {
+	if d < time.Second {
+		return d.Round(time.Millisecond).String()
+	}
+	return d.Round(time.Second).String()
+}
+
+// truncate cuts s to max bytes on a rune boundary. A cut mid-rune would put
+// invalid UTF-8 on the wire, which Telegram rejects outright.
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := s[:max]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return strings.TrimSpace(cut) + "…"
 }

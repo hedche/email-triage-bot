@@ -111,6 +111,17 @@ Decision fields flattened plus `from`, `subject` truncated to 80 chars. One
 `duration_ms`, `dry_run`, `failed_accounts`. Exit code 1 if any account failed
 or any Judge call failed.
 
+Two renderings of the same `run.Summary`, which must not be confused:
+`Summary.Text()` is plain text for stderr and the pod logs;
+`Summary.TelegramHTML()` is the notification, in Telegram's HTML parse mode.
+HTML, not MarkdownV2, because it reserves three characters rather than
+eighteen — addresses, brands and provider errors interpolate without an
+escaping bug silently costing the whole message. The layout targets a phone:
+no `<pre>` block (Telegram scrolls those sideways instead of wrapping), zero
+counts dropped, per-account detail inside an expandable `<blockquote>`, and
+failures rendered above that quote so nothing that needs attention is hidden
+behind a tap.
+
 ## CLI
 
 ```
@@ -145,5 +156,5 @@ gemini.New(apiKey, model string, timeout time.Duration) (*gemini.Judge, error)
 openai.New(baseURL, apiKey, model string, timeout time.Duration) (*openai.Judge, error)
 run.New(opts run.Options) *run.Runner                          // Options{Settings, Rules, Providers []mail.Provider, Judge judge.Judge, Log *slog.Logger, Decisions *decisionlog.Writer, Notifier notify.Notifier}
 (*run.Runner).Run(ctx) (run.Summary, error)
-notify.NewTelegram(token, chatID string) notify.Notifier         // Notify(ctx, text string) error
+notify.NewTelegram(token, chatID string) notify.Notifier         // Notify(ctx, text string) error; text is Telegram HTML
 ```
