@@ -66,12 +66,24 @@ func (s Summary) Failed() bool {
 	return false
 }
 
-// FailedAccounts lists the Accounts whose triage errored.
+// FailedAccounts lists the addresses of the Accounts whose triage errored.
 func (s Summary) FailedAccounts() []string {
-	var out []string
+	out := make([]string, 0, len(s.Accounts))
+	for _, a := range s.failures() {
+		out = append(out, a.Account)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// failures is the Accounts that errored, in run order.
+func (s Summary) failures() []AccountSummary {
+	var out []AccountSummary
 	for _, a := range s.Accounts {
 		if a.Err != nil {
-			out = append(out, a.Account)
+			out = append(out, a)
 		}
 	}
 	return out
@@ -177,13 +189,30 @@ func (s Summary) TelegramHTML() string {
 	fmt.Fprintf(&b, "\n<i>%d scanned across %s in %s</i>",
 		s.Scanned, plural(len(s.Accounts), "account"), shortDuration(s.Duration))
 
-	for _, a := range s.Accounts {
-		if a.Err != nil {
-			fmt.Fprintf(&b, "\n\n❌ <b>%s</b>\n%s", escapeHTML(a.Account), escapeHTML(truncate(a.Err.Error(), errMax)))
+	// What went wrong is announced in plain sight and detailed in its own
+	// quote. The banner is the part that must survive a glance at a
+	// notification; the error text under it is for when you sit down.
+	failed := s.failures()
+	if len(failed) > 0 || s.JudgeErrors > 0 {
+		var banner []string
+		if len(failed) > 0 {
+			banner = append(banner, fmt.Sprintf("❌ <b>%s failed</b>", plural(len(failed), "account")))
 		}
-	}
-	if s.JudgeErrors > 0 {
-		fmt.Fprintf(&b, "\n\n⚠️ <b>%s failed closed</b> and were left unread.", plural(s.JudgeErrors, "candidate"))
+		if s.JudgeErrors > 0 {
+			banner = append(banner, fmt.Sprintf("⚠️ <b>%s failed closed</b>", plural(s.JudgeErrors, "candidate")))
+		}
+		fmt.Fprintf(&b, "\n\n%s", strings.Join(banner, " · "))
+
+		if len(failed) > 0 {
+			b.WriteString("\n<blockquote expandable>")
+			for i, a := range failed {
+				if i > 0 {
+					b.WriteString("\n\n")
+				}
+				fmt.Fprintf(&b, "<b>%s</b>\n%s", escapeHTML(a.Account), escapeHTML(truncate(a.Err.Error(), errMax)))
+			}
+			b.WriteString("</blockquote>")
+		}
 	}
 
 	if len(s.Accounts) > 0 {

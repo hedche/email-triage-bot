@@ -52,27 +52,45 @@ func TestTelegramHTMLDryRunIsMarkedAndCountsAreConditional(t *testing.T) {
 	}
 }
 
-// Failures must be visible without expanding the quote: the collapsed view is
-// what a phone shows, and a failed run is the one that needs reading.
-func TestTelegramHTMLSurfacesFailuresAboveTheQuote(t *testing.T) {
+// A failure announces itself in the collapsed view — that is all a phone
+// shows — while the error text it needs is grouped in its own quote.
+func TestTelegramHTMLAnnouncesFailuresAndGroupsTheDetail(t *testing.T) {
 	sum := Summary{
 		RunID:       "r1",
 		JudgeErrors: 4,
-		Accounts:    []AccountSummary{{Account: "b@example.com", Scanned: 2, Err: errors.New("list unread: token expired")}},
+		Accounts: []AccountSummary{
+			{Account: "a@example.com", Scanned: 9, MarkedRead: 9},
+			{Account: "b@example.com", Scanned: 2, Err: errors.New("list unread: token expired")},
+			{Account: "c@example.com", Scanned: 1, Err: errors.New("fetch: 503")},
+		},
 	}
 	got := sum.TelegramHTML()
 	if !strings.HasPrefix(got, "❌ <b>Email triage</b>") {
 		t.Errorf("failed run needs a failure icon:\n%s", got)
 	}
-	quote := strings.Index(got, "<blockquote")
-	for _, want := range []string{"❌ <b>b@example.com</b>\nlist unread: token expired", "⚠️ <b>4 candidates failed closed</b>"} {
-		at := strings.Index(got, want)
-		if at < 0 {
-			t.Fatalf("message missing %q:\n%s", want, got)
+
+	banner := "❌ <b>2 accounts failed</b> · ⚠️ <b>4 candidates failed closed</b>"
+	at := strings.Index(got, banner)
+	if at < 0 {
+		t.Fatalf("message missing banner %q:\n%s", banner, got)
+	}
+	if first := strings.Index(got, "<blockquote"); at > first {
+		t.Error("the banner is inside a quote, where a glance can miss it")
+	}
+
+	// Both errors sit together in the first quote, before the per-account one.
+	quote := got[strings.Index(got, "<blockquote"):]
+	quote = quote[:strings.Index(quote, "</blockquote>")]
+	for _, want := range []string{"<b>b@example.com</b>\nlist unread: token expired", "<b>c@example.com</b>\nfetch: 503"} {
+		if !strings.Contains(quote, want) {
+			t.Errorf("failure quote missing %q:\n%s", want, quote)
 		}
-		if at > quote {
-			t.Errorf("%q is inside the collapsed quote, where it can be missed", want)
-		}
+	}
+	if strings.Contains(quote, "a@example.com") {
+		t.Errorf("healthy account leaked into the failure quote:\n%s", quote)
+	}
+	if n := strings.Count(got, "<blockquote"); n != 2 {
+		t.Errorf("want a failure quote and a per-account quote, got %d quotes:\n%s", n, got)
 	}
 }
 
