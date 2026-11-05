@@ -141,10 +141,14 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	if err := r.opts.Notifier.Notify(ctx, sum.TelegramHTML()); err != nil {
 		r.log.Error("notify failed", "run_id", r.runID, "error", err.Error())
 	}
-	// A Dry Run also sends the full per-message review as a file, so a person
-	// can read what the bot would have done before turning DRY_RUN off.
-	if dn, ok := r.opts.Notifier.(notify.DocumentNotifier); ok && sum.DryRun && sum.Scanned > 0 {
-		caption := fmt.Sprintf("🧪 Dry run review · %d messages", sum.Scanned)
+	// Every run that scanned something also sends the per-message report as a
+	// file: in a Dry Run it is what the bot would have done, in a live run
+	// what it did, so a wrong rule is noticed the morning it fires.
+	if dn, ok := r.opts.Notifier.(notify.DocumentNotifier); ok && sum.Scanned > 0 {
+		caption := fmt.Sprintf("📬 Triage report · %d messages", sum.Scanned)
+		if sum.DryRun {
+			caption = fmt.Sprintf("🧪 Dry run review · %d messages", sum.Scanned)
+		}
 		if err := dn.NotifyDocument(ctx, "triage-"+r.runID+".html", []byte(sum.ReportHTML()), caption); err != nil {
 			r.log.Error("notify report failed", "run_id", r.runID, "error", err.Error())
 		}
@@ -489,9 +493,7 @@ func (r *Runner) applyAndRecord(ctx context.Context, p mail.Provider, labelIDs m
 
 	for _, pd := range decided {
 		r.record(pd)
-		if dry {
-			as.Items = append(as.Items, reportItem(pd.msg, pd.decision))
-		}
+		as.Items = append(as.Items, reportItem(pd.msg, pd.decision))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("%s", strings.Join(errs, "; "))

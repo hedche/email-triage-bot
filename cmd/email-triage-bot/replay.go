@@ -16,6 +16,7 @@ func cmdReplay(args []string) int {
 	fs := flag.NewFlagSet("replay", flag.ContinueOnError)
 	decisions := fs.String("decisions", "", "path to a decision log written by run --decisions-out")
 	rulesPath := fs.String("rules", "", "path to the rules file to replay against")
+	overlayPath := fs.String("overlay", "", "path to an Overlay whose Changes are laid over the rules (optional)")
 	account := fs.String("account", "", "replay only this account")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -32,6 +33,16 @@ func cmdReplay(args []string) int {
 	rules, err := triage.LoadRules(*rulesPath)
 	if err != nil {
 		return fail(err)
+	}
+	if *overlayPath != "" {
+		if _, err := os.Stat(*overlayPath); err != nil {
+			return fail(err) // unlike the run, a named overlay that is missing is a mistake
+		}
+		changes, err := triage.LoadOverlay(*overlayPath)
+		if err != nil {
+			return fail(err)
+		}
+		rules = rules.WithOverlay(changes)
 	}
 
 	replay.Run(records, rules, *account).Write(os.Stdout)
