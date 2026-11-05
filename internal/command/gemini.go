@@ -76,9 +76,10 @@ func rawSchema() *genai.Schema {
 				Items: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
-						"op":    {Type: genai.TypeString, Enum: ops},
-						"value": {Type: genai.TypeString, Description: "address, domain or subject text; empty for brand ops"},
-						"brand": {Type: genai.TypeString, Description: "brand ops only"},
+						"op":      {Type: genai.TypeString, Enum: ops},
+						"value":   {Type: genai.TypeString, Description: "address, domain or subject text; empty for brand ops"},
+						"subject": {Type: genai.TypeString, Description: "read_sender/read_domain only: stable part of the subject the rule also requires; empty otherwise"},
+						"brand":   {Type: genai.TypeString, Description: "brand ops only"},
 						// No enum: Gemini rejects an empty enum value, and most
 						// ops have no verdict. Ground validates it instead.
 						"verdict":      {Type: genai.TypeString, Description: "brand_example only: mark-read or leave; empty for every other op"},
@@ -86,7 +87,7 @@ func rawSchema() *genai.Schema {
 						"all_accounts": {Type: genai.TypeBoolean},
 					},
 					Required:         []string{"op", "value", "note", "all_accounts"},
-					PropertyOrdering: []string{"op", "value", "brand", "verdict", "note", "all_accounts"},
+					PropertyOrdering: []string{"op", "value", "subject", "brand", "verdict", "note", "all_accounts"},
 				},
 			},
 			"remove": {Type: genai.TypeArray, Items: &genai.Schema{Type: genai.TypeString}},

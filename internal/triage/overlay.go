@@ -40,10 +40,13 @@ const minKeywordLen = 4
 // Changes live in the Overlay, which the bot owns; they are laid on top of the
 // rules file additively and never replace or remove anything in it.
 type Change struct {
-	ID        string    `yaml:"id" json:"id"`
-	Account   string    `yaml:"account,omitempty" json:"account,omitempty"` // "" applies to every Account
-	Op        Op        `yaml:"op" json:"op"`
-	Value     string    `yaml:"value,omitempty" json:"value,omitempty"` // address, domain or subject substring
+	ID      string `yaml:"id" json:"id"`
+	Account string `yaml:"account,omitempty" json:"account,omitempty"` // "" applies to every Account
+	Op      Op     `yaml:"op" json:"op"`
+	Value   string `yaml:"value,omitempty" json:"value,omitempty"` // address, domain or subject substring
+	// Subject narrows read_sender and read_domain: the Rule then matches only
+	// mail whose subject also contains it (SenderRule.Subject).
+	Subject   string    `yaml:"subject,omitempty" json:"subject,omitempty"`
 	Brand     string    `yaml:"brand,omitempty" json:"brand,omitempty"` // brand_note and brand_example only
 	Verdict   Verdict   `yaml:"verdict,omitempty" json:"verdict,omitempty"`
 	Note      string    `yaml:"note,omitempty" json:"note,omitempty"`
@@ -60,6 +63,10 @@ func (c Change) Normalise() Change {
 	case OpProtectSender, OpProtectDomain, OpReadSender, OpReadDomain:
 		c.Value = strings.ToLower(strings.TrimPrefix(c.Value, "@"))
 	}
+	c.Subject = strings.TrimSpace(c.Subject)
+	if c.Op != OpReadSender && c.Op != OpReadDomain {
+		c.Subject = ""
+	}
 	c.Brand = strings.TrimSpace(c.Brand)
 	c.Verdict = Verdict(strings.ToLower(strings.TrimSpace(string(c.Verdict))))
 	c.Note = strings.TrimSpace(c.Note)
@@ -68,6 +75,9 @@ func (c Change) Normalise() Change {
 
 // Validate reports whether the Change is well-formed for its Op.
 func (c Change) Validate() error {
+	if c.Subject != "" && len([]rune(c.Subject)) < minKeywordLen {
+		return fmt.Errorf("%s: subject %q is shorter than %d characters", c.Op, c.Subject, minKeywordLen)
+	}
 	switch c.Op {
 	case OpProtectSender, OpReadSender:
 		if a, err := mail.ParseAddress(c.Value); err != nil || !strings.EqualFold(a.Address, c.Value) {
@@ -137,6 +147,9 @@ func (c Change) Describe() string {
 		what = fmt.Sprintf("%s example: %s → %s", c.Brand, c.Note, c.Verdict)
 	default:
 		what = string(c.Op) + " " + c.Value
+	}
+	if c.Subject != "" {
+		what += fmt.Sprintf(" whose subject contains %q", c.Subject)
 	}
 	return what + " (" + scope + ")"
 }
@@ -251,9 +264,9 @@ func (rs RuleSet) apply(c Change) RuleSet {
 	case OpProtectKeyword:
 		rs.Protect = append(rs.Protect, ProtectRule{Keyword: c.Value, Note: note})
 	case OpReadSender:
-		rs.Senders = append(rs.Senders, SenderRule{Address: c.Value, Note: note})
+		rs.Senders = append(rs.Senders, SenderRule{Address: c.Value, Subject: c.Subject, Note: note})
 	case OpReadDomain:
-		rs.Senders = append(rs.Senders, SenderRule{Domain: c.Value, Note: note})
+		rs.Senders = append(rs.Senders, SenderRule{Domain: c.Value, Subject: c.Subject, Note: note})
 	case OpReadKeyword:
 		rs.Keywords = append(rs.Keywords, KeywordRule{Subject: c.Value, Note: note})
 	case OpBrandNote:
