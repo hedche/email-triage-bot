@@ -4,7 +4,7 @@
 //	email-triage-bot run     [--dry-run[=false]] [--account EMAIL] [--decisions-out PATH]
 //	email-triage-bot commands [--account EMAIL] [--overlay PATH]
 //	email-triage-bot auth    [--email EMAIL]
-//	email-triage-bot replay  --decisions PATH --rules PATH [--account EMAIL]
+//	email-triage-bot replay  --decisions PATH --rules PATH [--overlay PATH] [--account EMAIL]
 //	email-triage-bot version
 package main
 
@@ -25,7 +25,7 @@ Usage:
   email-triage-bot run     [--dry-run[=false]] [--account EMAIL] [--decisions-out PATH]
   email-triage-bot commands [--account EMAIL] [--overlay PATH]
   email-triage-bot auth    [--email EMAIL]
-  email-triage-bot replay  --decisions PATH --rules PATH [--account EMAIL]
+  email-triage-bot replay  --decisions PATH --rules PATH [--overlay PATH] [--account EMAIL]
   email-triage-bot version
 
 Configuration comes from the environment; see docs/design.md for the full table.

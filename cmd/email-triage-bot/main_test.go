@@ -67,6 +67,31 @@ func TestReplayCommandReadsALogAndPrintsAReport(t *testing.T) {
 	}
 }
 
+func TestReplayCommandAppliesAnOverlay(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "decisions.jsonl")
+	w, err := decisionlog.NewWriter(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Append(decisionlog.Record{
+		Decision: triage.Decision{Account: "a@example.com", MessageID: "m1", Tier: triage.TierNone, Verdict: triage.VerdictLeave},
+		Message:  decisionlog.MessageSummary{ID: "m1", Account: "a@example.com", From: triage.Address{Email: "news@news.example"}},
+	})
+	_ = w.Close()
+	rulesPath := filepath.Join(dir, "rules.yaml")
+	_ = os.WriteFile(rulesPath, []byte("threshold: 0.8\n"), 0o600)
+	overlay := filepath.Join(dir, "overlay.yaml")
+	_ = os.WriteFile(overlay, []byte("changes:\n  - id: a1\n    op: read_domain\n    value: news.example\n"), 0o600)
+
+	if code := cmdReplay([]string{"--decisions", logPath, "--rules", rulesPath, "--overlay", overlay}); code != 0 {
+		t.Fatalf("replay exit = %d, want 0", code)
+	}
+	if code := cmdReplay([]string{"--decisions", logPath, "--rules", rulesPath, "--overlay", filepath.Join(dir, "missing.yaml")}); code != 1 {
+		t.Errorf("a missing --overlay should fail, got exit %d", code)
+	}
+}
+
 func TestSelectAccounts(t *testing.T) {
 	accounts := []config.Account{
 		{Email: "a@example.com", RefreshToken: "t1", Provider: config.ProviderGmail},

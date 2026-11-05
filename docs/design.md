@@ -151,14 +151,16 @@ counts dropped, per-account detail inside an expandable `<blockquote>`, and
 failures rendered above that quote so nothing that needs attention is hidden
 behind a tap.
 
-A Dry Run also sends `Summary.ReportHTML()` as a file (`triage-<run_id>.html`,
-Telegram `sendDocument`), after the summary. It lists every scanned message
-per account under collapsible Would be read / Left / Unmatched sections: the
-sender, the subject capped at 45 characters, and why it went there (the
-matched rule, or the Judge's reason and confidence). It is a file because a
-full lookback window is far past Telegram's 4096-character message limit.
-Live runs neither collect the items nor send the file; once live, the Audit
-Labels in Gmail are the review.
+Every run that scanned something also sends `Summary.ReportHTML()` as a file
+(`triage-<run_id>.html`, Telegram `sendDocument`) after the summary. It lists
+every scanned message per account under collapsible Read / Left / Unmatched
+sections: the sender, the subject capped at 45 characters, and why it went
+there (the matched rule, or the Judge's reason and confidence). A Dry Run's
+report says "would be read"; a live run's says "marked read" and flags any
+message whose Gmail action failed as not applied. It is a file because a full
+lookback window is far past Telegram's 4096-character message limit. Live runs
+skip already-labelled mail, so after the first run the report covers only
+what is new since the last one.
 
 ## CLI
 

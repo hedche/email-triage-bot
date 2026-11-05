@@ -252,6 +252,11 @@ then writes the rules back into the secrets entry and pushes.
 /triage-tune dist/decisions.jsonl  # review a log you already have
 ```
 
+It also fetches the rules you added by email (the Overlay), uses them in
+the dry run and the replay, and offers to fold each one into the rules file
+and drop it from the Overlay, so the secrets file stays the single place to
+read your rules.
+
 The feedback it collects, and the Decision Log itself, stay in the session
 scratch directory. Nothing personal is written into this repository.
 

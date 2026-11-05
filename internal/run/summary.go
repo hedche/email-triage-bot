@@ -25,9 +25,8 @@ type AccountSummary struct {
 	// warning, not a failure: the run did what it was configured to do, and
 	// failing it would only make the Job retry into the same skip.
 	Skipped string
-	// Items lists every scanned Message and where it ended up. It is filled
-	// only in a Dry Run, for the review report a person reads before turning
-	// DRY_RUN off.
+	// Items lists every scanned Message and where it ended up, for the
+	// per-run HTML report (Summary.ReportHTML).
 	Items []ReportItem
 }
 

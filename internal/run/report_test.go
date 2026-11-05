@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -85,12 +86,31 @@ func TestDryRunRecordsWhereEveryMessageWent(t *testing.T) {
 	}
 }
 
-// A live run must not carry subjects around: the report is a Dry Run tool.
-func TestLiveRunRecordsNoItems(t *testing.T) {
+// A live run reports what it did, so a wrong rule is caught the morning it fires.
+func TestLiveRunRecordsItems(t *testing.T) {
 	j := &fakeJudge{confidence: map[string]float64{"m3": 0.95, "m4": 0.2}}
-	sum, _, _ := runWith(t, Options{Settings: testSettings(), Rules: reviewRules(), Providers: []mail.Provider{reviewProvider()}, Judge: j})
-	if n := len(sum.Accounts[0].Items); n != 0 {
-		t.Errorf("live run recorded %d report items", n)
+	sum, err, _ := runWith(t, Options{Settings: testSettings(), Rules: reviewRules(), Providers: []mail.Provider{reviewProvider()}, Judge: j})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	items := sum.Accounts[0].Items
+	if len(items) != 5 || items[0].Bucket != BucketRead || items[0].Why != "sender domain:github.com" {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
+// When the Gmail action fails the mail is still unread; the report must not
+// list it as read without saying so.
+func TestLiveRunReportFlagsAFailedAction(t *testing.T) {
+	p := reviewProvider()
+	p.markErr = errors.New("500 backend error")
+	j := &fakeJudge{confidence: map[string]float64{"m3": 0.95, "m4": 0.2}}
+	sum, _, _ := runWith(t, Options{Settings: testSettings(), Rules: reviewRules(), Providers: []mail.Provider{p}, Judge: j})
+	if got := sum.Accounts[0].Items[0].Why; !strings.Contains(got, "not applied") {
+		t.Errorf("why = %q, want it to say the action was not applied", got)
+	}
+	if got := sum.Accounts[0].Items[1].Why; strings.Contains(got, "not applied") {
+		t.Errorf("protect label succeeded but why = %q", got)
 	}
 }
 
@@ -115,14 +135,37 @@ func TestDryRunSendsTheReviewFile(t *testing.T) {
 	}
 }
 
-func TestLiveRunSendsNoReviewFile(t *testing.T) {
+func TestLiveRunSendsTheReport(t *testing.T) {
 	n := &documentNotifier{}
 	j := &fakeJudge{confidence: map[string]float64{"m3": 0.95, "m4": 0.2}}
-	if _, err, _ := runWith(t, Options{Settings: testSettings(), Rules: reviewRules(), Providers: []mail.Provider{reviewProvider()}, Judge: j, Notifier: n}); err != nil {
+	sum, err, _ := runWith(t, Options{Settings: testSettings(), Rules: reviewRules(), Providers: []mail.Provider{reviewProvider()}, Judge: j, Notifier: n, RunID: "R2"})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if n.docs != 1 || n.filename != "triage-R2.html" || n.content != sum.ReportHTML() {
+		t.Fatalf("docs=%d filename=%q", n.docs, n.filename)
+	}
+	if n.caption != "📬 Triage report · 5 messages" {
+		t.Errorf("caption = %q", n.caption)
+	}
+	for _, want := range []string{"📬 Email triage report", "<summary>📭 Marked read (2)</summary>", "2 marked read"} {
+		if !strings.Contains(n.content, want) {
+			t.Errorf("live report missing %q", want)
+		}
+	}
+	if strings.Contains(n.content, "dry run") || strings.Contains(n.content, "Would be read") {
+		t.Error("live report talks about a dry run")
+	}
+}
+
+// Nothing scanned, nothing to report: a quiet morning is one message, not two.
+func TestRunWithNothingScannedSendsNoReport(t *testing.T) {
+	n := &documentNotifier{}
+	if _, err, _ := runWith(t, Options{Settings: testSettings(), Rules: reviewRules(), Providers: []mail.Provider{provider("a@example.com")}, Notifier: n}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if n.docs != 0 {
-		t.Errorf("live run sent %d review files", n.docs)
+		t.Errorf("sent %d reports for an empty run", n.docs)
 	}
 }
 
