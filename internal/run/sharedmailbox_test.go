@@ -13,6 +13,8 @@ import (
 // Two credentials onto one mailbox list the same provider message IDs. Both
 // Accounts must be skipped: acting on either would triage one mailbox twice
 // under two names, and nothing says which name the credentials belong to.
+// The skip is a warning, not a failure: failing the run only made the Job
+// retry into the same skip, three runs and three summaries a day.
 func TestSharedMailboxSkipsBothAccounts(t *testing.T) {
 	rules := &triage.Rules{Threshold: 0.8, RuleSet: triage.RuleSet{Senders: []triage.SenderRule{{Domain: "github.com"}}}}
 	shared := msg("m1", "", "GitHub", "noreply@github.com", "PR merged")
@@ -22,8 +24,8 @@ func TestSharedMailboxSkipsBothAccounts(t *testing.T) {
 	c := provider("c@example.com", msg("m9", "c@example.com", "GitHub", "noreply@github.com", "PR merged"))
 
 	sum, err, _ := runWith(t, Options{Settings: testSettings(), Rules: rules, Providers: []mail.Provider{a, b, c}})
-	if err == nil {
-		t.Fatal("a shared mailbox must fail the run")
+	if err != nil {
+		t.Fatalf("a shared mailbox is a warning and must not fail the run: %v", err)
 	}
 
 	for _, p := range []*fakeProvider{a, b} {
@@ -41,11 +43,11 @@ func TestSharedMailboxSkipsBothAccounts(t *testing.T) {
 	}
 	for _, want := range []struct{ account, other string }{{"a@example.com", "b@example.com"}, {"b@example.com", "a@example.com"}} {
 		as := byAccount[want.account]
-		if as.Err == nil {
-			t.Fatalf("%s has no error", want.account)
+		if as.Skipped == "" || as.Err != nil {
+			t.Fatalf("%s: want skipped without error, got skipped=%q err=%v", want.account, as.Skipped, as.Err)
 		}
-		if !strings.Contains(as.Err.Error(), want.other) {
-			t.Errorf("%s error should name %s, got %v", want.account, want.other, as.Err)
+		if !strings.Contains(as.Skipped, want.other) {
+			t.Errorf("%s skip reason should name %s, got %q", want.account, want.other, as.Skipped)
 		}
 		if as.Scanned != 0 {
 			t.Errorf("%s scanned %d messages, want 0", want.account, as.Scanned)

@@ -115,8 +115,10 @@ Before any Account is triaged the run lists each one's unread IDs and compares
 them. A provider message ID is unique only within a mailbox, so one ID in
 common means two Accounts are one mailbox reached through two credentials —
 the shape a copied `refresh_token` takes. Both are skipped (`msg="account
-skipped"`, `shares_mailbox_with`) and reported as failures, because nothing
-says which name the credentials belong to.
+skipped"`, at WARN, `shares_mailbox_with`), because nothing says which name
+the credentials belong to. A skip is a warning, not a failure: it shows as ⏭️
+in the summary but does not fail the run, since a failed run only made the
+Job retry into the same skip, up to three times a day.
 
 Two renderings of the same `run.Summary`, which must not be confused:
 `Summary.Text()` is plain text for stderr and the pod logs;
@@ -128,6 +130,15 @@ no `<pre>` block (Telegram scrolls those sideways instead of wrapping), zero
 counts dropped, per-account detail inside an expandable `<blockquote>`, and
 failures rendered above that quote so nothing that needs attention is hidden
 behind a tap.
+
+A Dry Run also sends `Summary.ReportHTML()` as a file (`triage-<run_id>.html`,
+Telegram `sendDocument`), after the summary. It lists every scanned message
+per account under collapsible Would be read / Left / Unmatched sections: the
+sender, the subject capped at 45 characters, and why it went there (the
+matched rule, or the Judge's reason and confidence). It is a file because a
+full lookback window is far past Telegram's 4096-character message limit.
+Live runs neither collect the items nor send the file; once live, the Audit
+Labels in Gmail are the review.
 
 ## CLI
 
@@ -164,4 +175,5 @@ openai.New(baseURL, apiKey, model string, timeout time.Duration) (*openai.Judge,
 run.New(opts run.Options) *run.Runner                          // Options{Settings, Rules, Providers []mail.Provider, Judge judge.Judge, Log *slog.Logger, Decisions *decisionlog.Writer, Notifier notify.Notifier}
 (*run.Runner).Run(ctx) (run.Summary, error)
 notify.NewTelegram(token, chatID string) notify.Notifier         // Notify(ctx, text string) error; text is Telegram HTML
+                                                                  // also a notify.DocumentNotifier: NotifyDocument(ctx, filename, content, caption)
 ```

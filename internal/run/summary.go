@@ -21,6 +21,14 @@ type AccountSummary struct {
 	JudgeCalls  int // Judge batch calls attempted for this Account
 	JudgeErrors int // Candidates that failed closed (call failed, unusable, or over budget)
 	Err         error
+	// Skipped says why the Account was deliberately not triaged. It is a
+	// warning, not a failure: the run did what it was configured to do, and
+	// failing it would only make the Job retry into the same skip.
+	Skipped string
+	// Items lists every scanned Message and where it ended up. It is filled
+	// only in a Dry Run, for the review report a person reads before turning
+	// DRY_RUN off.
+	Items []ReportItem
 }
 
 // Summary is the outcome of a whole Triage Run.
@@ -78,6 +86,17 @@ func (s Summary) FailedAccounts() []string {
 	return out
 }
 
+// skipped is the Accounts deliberately not triaged, in run order.
+func (s Summary) skipped() []AccountSummary {
+	var out []AccountSummary
+	for _, a := range s.Accounts {
+		if a.Skipped != "" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // failures is the Accounts that errored, in run order.
 func (s Summary) failures() []AccountSummary {
 	var out []AccountSummary
@@ -120,6 +139,9 @@ func (s Summary) Text() string {
 		if a.Err != nil {
 			fmt.Fprintf(&b, ", ERROR: %v", a.Err)
 		}
+		if a.Skipped != "" {
+			fmt.Fprintf(&b, ", SKIPPED: %s", a.Skipped)
+		}
 		b.WriteString("\n")
 	}
 	fmt.Fprintf(&b, "totals: %s (%s)",
@@ -150,6 +172,9 @@ func (s Summary) logAccounts() []map[string]any {
 		}
 		if a.Err != nil {
 			m["error"] = a.Err.Error()
+		}
+		if a.Skipped != "" {
+			m["skipped"] = a.Skipped
 		}
 		out = append(out, m)
 	}
@@ -192,8 +217,8 @@ func (s Summary) TelegramHTML() string {
 	// What went wrong is announced in plain sight and detailed in its own
 	// quote. The banner is the part that must survive a glance at a
 	// notification; the error text under it is for when you sit down.
-	failed := s.failures()
-	if len(failed) > 0 || s.JudgeErrors > 0 {
+	failed, skipped := s.failures(), s.skipped()
+	if len(failed) > 0 || s.JudgeErrors > 0 || len(skipped) > 0 {
 		var banner []string
 		if len(failed) > 0 {
 			banner = append(banner, fmt.Sprintf("❌ <b>%s failed</b>", plural(len(failed), "account")))
@@ -201,15 +226,27 @@ func (s Summary) TelegramHTML() string {
 		if s.JudgeErrors > 0 {
 			banner = append(banner, fmt.Sprintf("⚠️ <b>%s failed closed</b>", plural(s.JudgeErrors, "candidate")))
 		}
+		if len(skipped) > 0 {
+			banner = append(banner, fmt.Sprintf("⏭️ <b>%s skipped</b>", plural(len(skipped), "account")))
+		}
 		fmt.Fprintf(&b, "\n\n%s", strings.Join(banner, " · "))
 
-		if len(failed) > 0 {
+		if len(failed) > 0 || len(skipped) > 0 {
 			b.WriteString("\n<blockquote expandable>")
-			for i, a := range failed {
+			i := 0
+			for _, a := range failed {
 				if i > 0 {
 					b.WriteString("\n\n")
 				}
 				fmt.Fprintf(&b, "<b>%s</b>\n%s", escapeHTML(a.Account), escapeHTML(truncate(a.Err.Error(), errMax)))
+				i++
+			}
+			for _, a := range skipped {
+				if i > 0 {
+					b.WriteString("\n\n")
+				}
+				fmt.Fprintf(&b, "⏭️ <b>%s</b>\n%s", escapeHTML(a.Account), escapeHTML(truncate(a.Skipped, errMax)))
+				i++
 			}
 			b.WriteString("</blockquote>")
 		}
@@ -241,6 +278,8 @@ func accountIcon(a AccountSummary) string {
 	switch {
 	case a.Err != nil:
 		return "❌"
+	case a.Skipped != "":
+		return "⏭️"
 	case a.JudgeErrors > 0:
 		return "⚠️"
 	case a.MarkedRead > 0:
@@ -253,6 +292,9 @@ func accountIcon(a AccountSummary) string {
 // accountCounts renders one Account's counts, dropping the zeros. A quiet
 // mailbox should read as one short line, not as five fields of nothing.
 func accountCounts(a AccountSummary) string {
+	if a.Skipped != "" {
+		return "skipped"
+	}
 	parts := []string{fmt.Sprintf("%d scanned", a.Scanned)}
 	if a.MarkedRead > 0 {
 		parts = append(parts, fmt.Sprintf("<b>%d</b> read", a.MarkedRead))

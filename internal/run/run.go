@@ -111,10 +111,10 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	shared := r.sharedMailboxes(ctx)
 	for _, p := range r.opts.Providers {
 		if others := shared[p.Account()]; len(others) > 0 {
-			err := fmt.Errorf("same mailbox as %s: neither was processed, so one mailbox is not triaged twice under two names — check refresh_token in accounts.yaml", strings.Join(others, ", "))
-			r.log.Error("account skipped",
+			reason := fmt.Sprintf("same mailbox as %s: neither was processed, so one mailbox is not triaged twice under two names — check refresh_token in accounts.yaml", strings.Join(others, ", "))
+			r.log.Warn("account skipped",
 				"run_id", r.runID, "account", p.Account(), "shares_mailbox_with", others)
-			sum.add(AccountSummary{Account: p.Account(), Err: err})
+			sum.add(AccountSummary{Account: p.Account(), Skipped: reason})
 			continue
 		}
 		sum.add(r.runAccount(ctx, p))
@@ -140,6 +140,14 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 	// otherwise did its job, and neither can rescue one that did not.
 	if err := r.opts.Notifier.Notify(ctx, sum.TelegramHTML()); err != nil {
 		r.log.Error("notify failed", "run_id", r.runID, "error", err.Error())
+	}
+	// A Dry Run also sends the full per-message review as a file, so a person
+	// can read what the bot would have done before turning DRY_RUN off.
+	if dn, ok := r.opts.Notifier.(notify.DocumentNotifier); ok && sum.DryRun && sum.Scanned > 0 {
+		caption := fmt.Sprintf("🧪 Dry run review · %d messages", sum.Scanned)
+		if err := dn.NotifyDocument(ctx, "triage-"+r.runID+".html", []byte(sum.ReportHTML()), caption); err != nil {
+			r.log.Error("notify report failed", "run_id", r.runID, "error", err.Error())
+		}
 	}
 	if !sum.Failed() && r.opts.Settings != nil && r.opts.Settings.HealthcheckPingURL != "" {
 		if err := notify.Healthcheck(ctx, r.opts.Settings.HealthcheckPingURL); err != nil {
@@ -481,6 +489,9 @@ func (r *Runner) applyAndRecord(ctx context.Context, p mail.Provider, labelIDs m
 
 	for _, pd := range decided {
 		r.record(pd)
+		if dry {
+			as.Items = append(as.Items, reportItem(pd.msg, pd.decision))
+		}
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("%s", strings.Join(errs, "; "))
