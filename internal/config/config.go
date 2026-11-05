@@ -14,8 +14,9 @@ import (
 // Settings is every environment variable the bot reads, already typed and
 // defaulted. See docs/design.md for the table this mirrors.
 type Settings struct {
-	RulesFile    string
-	AccountsFile string
+	RulesFile        string
+	RulesOverlayFile string
+	AccountsFile     string
 
 	DryRun                bool
 	LookbackDays          int
@@ -45,6 +46,12 @@ type Settings struct {
 
 	HealthcheckPingURL string
 	DecisionsOut       string
+
+	// Email Commands (the commands subcommand).
+	OverlaySecret            string
+	CommandTag               string
+	CommandLabel             string
+	CommandsTelegramBotToken string
 
 	LogFormat string
 	LogLevel  string
@@ -79,6 +86,7 @@ func LoadFrom(lookup func(string) string) (*Settings, error) {
 
 	s := &Settings{
 		RulesFile:          get("RULES_FILE", "/config/rules.yaml"),
+		RulesOverlayFile:   get("RULES_OVERLAY_FILE", "/config/overlay/overlay.yaml"),
 		AccountsFile:       get("ACCOUNTS_FILE", "/config/accounts.yaml"),
 		LabelRead:          get("LABEL_READ", "Triage/Read"),
 		LabelLeft:          get("LABEL_LEFT", "Triage/Left"),
@@ -94,9 +102,16 @@ func LoadFrom(lookup func(string) string) (*Settings, error) {
 		TelegramChatID:     get("TELEGRAM_CHAT_ID", ""),
 		HealthcheckPingURL: get("HEALTHCHECK_PING_URL", ""),
 		DecisionsOut:       get("DECISIONS_OUT", ""),
+		OverlaySecret:      get("OVERLAY_SECRET", ""),
+		CommandTag:         strings.ToLower(get("COMMAND_TAG", "triage")),
+		CommandLabel:       get("LABEL_COMMAND", "Triage/Command"),
 		LogFormat:          strings.ToLower(get("LOG_FORMAT", "json")),
 		LogLevel:           strings.ToLower(get("LOG_LEVEL", "info")),
 	}
+
+	// Email Commands poll getUpdates, which Telegram refuses for a bot with a
+	// webhook, so they may need a bot of their own.
+	s.CommandsTelegramBotToken = get("COMMANDS_TELEGRAM_BOT_TOKEN", s.TelegramBotToken)
 
 	var err error
 	if s.DryRun, err = parseBool(get("DRY_RUN", "true"), "DRY_RUN"); err != nil {

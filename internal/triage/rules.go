@@ -152,7 +152,7 @@ func normaliseRuleSet(rs RuleSet, where string) (RuleSet, error) {
 // For returns the RuleSet that applies to one Account: the global rules with
 // that Account's rules appended, tier by tier. Per-account rules never replace
 // global ones, so a per-account Protect Rule still wins over a global Sender
-// Rule by tier order alone.
+// Rule by tier order alone. Brands are the exception: see the merge below.
 func (r *Rules) For(account string) RuleSet {
 	if r == nil {
 		return RuleSet{}
@@ -170,6 +170,11 @@ func (r *Rules) For(account string) RuleSet {
 	merged.Protect = append(merged.Protect, per.Protect...)
 	merged.Senders = append(merged.Senders, per.Senders...)
 	merged.Keywords = append(merged.Keywords, per.Keywords...)
-	merged.Brands = append(merged.Brands, per.Brands...)
+	// A per-account Brand with the same name as a global one is merged into
+	// it: only the first Brand with a name is ever matched, so appending it
+	// would leave the per-account note and examples unused.
+	for _, b := range per.Brands {
+		merged.Brands = mergeBrand(merged.Brands, b)
+	}
 	return merged
 }

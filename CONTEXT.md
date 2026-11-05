@@ -106,6 +106,32 @@ _Avoid_: preview, test mode, simulation
 The rule that when a Judge is unavailable, over quota or returns something unusable, the affected Candidates receive the Verdict leave.
 _Avoid_: safe default, fallback
 
+### Email Commands
+
+**Email Command**:
+A message an Account owner sends to their own plus-address (`local+triage@domain`), usually forwarding a Message, with a note saying how its Rules should change. Only a message Gmail marks as sent by the Account itself counts.
+_Avoid_: email rule, bot email, instruction email
+
+**Change**:
+One Rule added by an Email Command. Changes only ever add to the rules file; they never replace or remove anything in it.
+_Avoid_: edit, patch, override
+
+**Overlay**:
+The bot-owned set of Changes, kept in its own Secret and laid over the rules file at the start of every Triage Run.
+_Avoid_: learned rules, extra rules, overrides file
+
+**Protective Change**:
+A Change that can only make the bot leave more mail alone: a Protect Rule or an Example whose Verdict is leave. Protective Changes apply without confirmation.
+_Avoid_: safe change
+
+**Proposal**:
+The Changes from one Email Command that are not Protective, waiting for the owner to tap Apply or Discard in Telegram. A Proposal expires after seven days.
+_Avoid_: pending change, request
+
+**Interpreter**:
+The component that turns an Email Command's note into proposed Changes. It never sees a forwarded Message's body, and every Change it proposes must be grounded in the note or the forwarded sender and subject.
+_Avoid_: parser, assistant, Judge
+
 ### Tuning
 
 **Decision Log**:

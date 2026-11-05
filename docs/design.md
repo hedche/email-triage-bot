@@ -6,7 +6,7 @@ owns the vocabulary; docs/adr/ owns the why. This owns the shapes.
 ## Module layout
 
 ```
-cmd/email-triage-bot/      CLI: run | auth | replay | version
+cmd/email-triage-bot/      CLI: run | commands | auth | replay | version
 internal/triage/           domain types (types.go) + rules engine (engine.go) + rules loading (rules.go)
 internal/config/           Settings from env; accounts file loading
 internal/textclean/        HTML/plain-text stripping and capping for message bodies
@@ -15,6 +15,7 @@ internal/mail/             Provider interface;  internal/mail/gmail/  Gmail impl
 internal/judge/            Judge interface;     internal/judge/gemini/  internal/judge/openai/
 internal/run/              the Triage Run orchestrator (per-account loop, batching, actions, summary)
 internal/notify/           Telegram summary (optional)
+internal/command/          Email Commands: plus-address commands -> Overlay Changes (ADR 0005)
 examples/                  rules.example.yaml, accounts.example.yaml
 .claude/skills/triage-tune Claude skill for reviewing decisions and tuning rules
 ```
@@ -24,6 +25,7 @@ examples/                  rules.example.yaml, accounts.example.yaml
 | Variable | Default | Notes |
 |---|---|---|
 | `RULES_FILE` | `/config/rules.yaml` | mounted from the `email-triage-rules` Secret |
+| `RULES_OVERLAY_FILE` | `/config/overlay/overlay.yaml` | Changes made by Email Commands; a missing file is no Changes |
 | `ACCOUNTS_FILE` | `/config/accounts.yaml` | mounted from the `email-triage-accounts` Secret |
 | `DRY_RUN` | `true` | `run --dry-run=false` overrides |
 | `LOOKBACK_DAYS` | `7` | |
@@ -42,6 +44,10 @@ examples/                  rules.example.yaml, accounts.example.yaml
 | `OPENAI_MODEL` | | required when provider is openai |
 | `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET` | | OAuth desktop client shared by all accounts |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | | both set enables the per-run summary |
+| `OVERLAY_SECRET` | | `commands` only: the Secret holding the Overlay, e.g. `email-triage-rules-overlay`; `commands --overlay PATH` uses a local file instead |
+| `COMMAND_TAG` | `triage` | `commands` only: the plus-address tag, so commands go to `local+triage@domain` |
+| `LABEL_COMMAND` | `Triage/Command` | applied to handled Email Commands, which are also marked read |
+| `COMMANDS_TELEGRAM_BOT_TOKEN` | `TELEGRAM_BOT_TOKEN` | `commands` only; must be a bot with no webhook, because taps are read with getUpdates |
 | `HEALTHCHECK_PING_URL` | | GET after a fully successful run; empty disables |
 | `DECISIONS_OUT` | | path for the Decision Log; `run --decisions-out` overrides |
 | `LOG_FORMAT` | `json` | `json` or `text` |

@@ -255,6 +255,30 @@ then writes the rules back into the secrets entry and pushes.
 The feedback it collects, and the Decision Log itself, stay in the session
 scratch directory. Nothing personal is written into this repository.
 
+### Changing rules by email
+
+Forward a message to your own address with `+triage` added
+(`someone+triage@gmail.com`), from the mailbox it arrived in, and write what you
+want above it: "stop showing me these", "never hide anything from this
+company", "undo the newsletter rule". The `commands` subcommand, which the
+cluster runs every 15 minutes, turns the note into rule changes:
+
+- Protect rules apply straight away and are reported in Telegram.
+- Anything that could mark mail read is sent to Telegram with **Apply** and
+  **Discard** buttons, and changes nothing until you tap Apply.
+- Only mail your own account sent is accepted (Gmail's SENT label proves it),
+  the AI never sees the forwarded body, and every rule it proposes must name an
+  address, domain, subject or brand from your note or the forwarded sender and
+  subject.
+
+Changes are stored in their own Secret and added on top of your rules file;
+they never remove anything from it. See
+[ADR 0005](docs/adr/0005-email-commands-write-a-bot-owned-overlay.md).
+
+```bash
+email-triage-bot commands --overlay dist/overlay.yaml   # locally, with a file instead of the Secret
+```
+
 ## Telemetry
 
 One structured log record per scanned message, at INFO:
@@ -295,7 +319,7 @@ Possible later work:
   Outlook/Graph.
 - Learned sender preferences — deriving sender and keyword rules from
   accumulated feedback rather than having a person write each one, with the
-  same caveat about state.
+  same caveat about state. Email Commands (ADR 0005) are the first step.
 
 ## Prior art
 
