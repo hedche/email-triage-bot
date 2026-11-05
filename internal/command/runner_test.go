@@ -184,6 +184,40 @@ func TestRunIgnoresUnverifiedCommandsAndForeignTaps(t *testing.T) {
 	}
 }
 
+func TestRunHandlesTheDeliveredCopySilently(t *testing.T) {
+	store := &memStore{}
+	sentMsg := command("m-sent", true, "me@example.com")
+	sentMsg.MessageID = "<abc@mail.gmail.com>"
+	copyMsg := command("m-copy", false, "me@example.com")
+	copyMsg.MessageID = "<abc@mail.gmail.com>"
+	spoof := command("m-spoof", false, "me@example.com")
+	spoof.MessageID = "<other@evil.example>"
+	src := &fakeSource{account: "me@example.com", msgs: []mail.CommandMessage{copyMsg, sentMsg, spoof}}
+	msgr := &fakeMessenger{}
+	r := newRunner(store, src, msgr, Raw{Changes: []RawChange{{Op: "protect_keyword", Value: "the boss"}}})
+
+	rep, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Commands != 1 || rep.Ignored != 1 {
+		t.Errorf("report %+v: the copy must not count as ignored, the spoof must", rep)
+	}
+	read := strings.Join(src.read, ",")
+	if !strings.Contains(read, "m-sent") || !strings.Contains(read, "m-copy") || strings.Contains(read, "m-spoof") {
+		t.Errorf("marked read %q", read)
+	}
+	warnings := 0
+	for _, s := range msgr.sent {
+		if strings.Contains(s.text, "Ignored") {
+			warnings++
+		}
+	}
+	if warnings != 1 {
+		t.Errorf("%d ignore warnings, want 1 (the spoof only)", warnings)
+	}
+}
+
 func TestRunExpiresOldProposals(t *testing.T) {
 	store := &memStore{st: &State{Pending: []Proposal{{ID: "old", TelegramMessageID: 9, CreatedAt: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}}}}
 	msgr := &fakeMessenger{}

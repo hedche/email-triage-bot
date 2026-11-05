@@ -42,6 +42,7 @@ type Provider interface {
 // command subcommand needs to verify it and read the instruction.
 type CommandMessage struct {
 	ID         string
+	MessageID  string   // the RFC 5322 Message-ID header
 	From       string   // the From address, lower-cased
 	Recipients []string // To, Cc and Delivered-To addresses, lower-cased
 	Subject    string

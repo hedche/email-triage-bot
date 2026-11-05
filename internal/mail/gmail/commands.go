@@ -76,6 +76,7 @@ func convertCommand(msg *gmailapi.Message) mailpkg.CommandMessage {
 	}
 	return mailpkg.CommandMessage{
 		ID:         msg.Id,
+		MessageID:  strings.TrimSpace(hdr.get("Message-ID")),
 		From:       parseFrom(hdr.get("From")).Email,
 		Recipients: recipients,
 		Subject:    hdr.get("Subject"),
