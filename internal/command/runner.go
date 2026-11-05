@@ -84,6 +84,9 @@ func (r *Runner) Run(ctx context.Context) (Report, error) {
 		r.warn(err, "sending a notice")
 	}
 	for i, ids := range post.handled {
+		if len(ids) == 0 {
+			continue
+		}
 		r.label(ctx, r.Sources[i], ids)
 	}
 	return rep, nil
@@ -165,6 +168,19 @@ func (r *Runner) handleCommands(ctx context.Context, i int, src mail.CommandSour
 	if err != nil {
 		return err
 	}
+	// Mail to your own plus-address is stored twice: the sent message, and a
+	// delivered copy without the SENT label but with the same Message-ID. The
+	// copy is not a spoof; it is handled silently alongside the command.
+	verifiedIDs := map[string]bool{}
+	for _, m := range msgs {
+		if m.MessageID != "" && Verified(m, account, plus) {
+			verifiedIDs[m.MessageID] = true
+		}
+	}
+	if post.handled[i] == nil {
+		post.handled[i] = map[string]bool{}
+	}
+
 	// Oldest first, so two commands sent a minute apart apply in order.
 	for j := len(msgs) - 1; j >= 0; j-- {
 		m := msgs[j]
@@ -173,6 +189,10 @@ func (r *Runner) handleCommands(ctx context.Context, i int, src mail.CommandSour
 			continue
 		}
 		st.markSeen(key)
+		if !m.Sent && m.MessageID != "" && verifiedIDs[m.MessageID] {
+			post.handled[i][m.ID] = true
+			continue
+		}
 		if !Verified(m, account, plus) {
 			rep.Ignored++
 			r.Log.Warn("ignored a message to the command address that the account did not send",
@@ -183,9 +203,6 @@ func (r *Runner) handleCommands(ctx context.Context, i int, src mail.CommandSour
 			continue
 		}
 		rep.Commands++
-		if post.handled[i] == nil {
-			post.handled[i] = map[string]bool{}
-		}
 		post.handled[i][m.ID] = true
 		r.handleOne(ctx, account, m, st, post, rep)
 	}
