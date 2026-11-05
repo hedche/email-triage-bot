@@ -63,10 +63,16 @@ protect:
   - sender: alice@example.com
   - domain: example-corp.com      # includes subdomains
   - keyword: invoice              # case-insensitive subject substring
+  - domain: example-bank.com
+    except: [payment completed]   # these subjects are not protected by this rule
 senders:
   - address: noreply@github.com
   - domain: royalmail.com
     note: tracking updates
+  - domain: github.com            # narrowed: both name and subject must match too
+    name: github-actions[bot]
+  - domain: example-bank.com
+    subject: payment completed
 keywords:
   - subject: your weekly digest
 brands:
@@ -87,7 +93,15 @@ accounts:                          # optional, additive per account
 
 Matching semantics: all comparisons are case-insensitive. `domain` matches the
 domain and any subdomain. `sender`/`address` match the address only, never the
-display name. `keyword`/`subject` are substring matches on the subject. A brand
+display name. `keyword`/`subject` are substring matches on the subject.
+
+A Sender Rule's optional `name` (exact display name) and `subject` (subject
+substring) narrow it: when set they must match as well as the address or
+domain. `name` never stands alone, because a display name is free to forge; it
+only tells apart senders sharing an address, like the bots and people all
+mailing from `notifications@github.com`. A Protect Rule's `except` lists
+subject substrings it does not protect. Excepted mail falls through to the
+later tiers and still needs its own rule there to be marked read. A brand
 matches when its name appears as a substring in the sender name, the sender
 domain (with spaces removed from the brand name) or the subject.
 

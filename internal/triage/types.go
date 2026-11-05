@@ -69,18 +69,29 @@ type Message struct {
 // ---- Rules -----------------------------------------------------------------
 
 // ProtectRule names mail the bot must never touch. Exactly one of the
-// matching fields should be set.
+// matching fields should be set. Except carves named subjects back out: a
+// Message whose subject contains one of them is not protected by this Rule and
+// falls through to the later Tiers, where it still needs its own Rule to be
+// marked read.
 type ProtectRule struct {
-	Sender  string `yaml:"sender,omitempty" json:"sender,omitempty"`   // exact address
-	Domain  string `yaml:"domain,omitempty" json:"domain,omitempty"`   // domain incl. subdomains
-	Keyword string `yaml:"keyword,omitempty" json:"keyword,omitempty"` // case-insensitive subject substring
-	Note    string `yaml:"note,omitempty" json:"note,omitempty"`
+	Sender  string   `yaml:"sender,omitempty" json:"sender,omitempty"`   // exact address
+	Domain  string   `yaml:"domain,omitempty" json:"domain,omitempty"`   // domain incl. subdomains
+	Keyword string   `yaml:"keyword,omitempty" json:"keyword,omitempty"` // case-insensitive subject substring
+	Except  []string `yaml:"except,omitempty" json:"except,omitempty"`   // case-insensitive subject substrings
+	Note    string   `yaml:"note,omitempty" json:"note,omitempty"`
 }
 
-// SenderRule names an exact address or a domain whose mail is always marked read.
+// SenderRule names an exact address or a domain whose mail is always marked
+// read. Name and Subject narrow it further and must match too when set: Name
+// is the exact sender display name, Subject a subject substring, both
+// case-insensitive. Name never stands alone, because anyone can send under any
+// display name; it only tells apart senders sharing one address, such as the
+// bots that all mail from notifications@github.com.
 type SenderRule struct {
 	Address string `yaml:"address,omitempty" json:"address,omitempty"`
 	Domain  string `yaml:"domain,omitempty" json:"domain,omitempty"`
+	Name    string `yaml:"name,omitempty" json:"name,omitempty"`
+	Subject string `yaml:"subject,omitempty" json:"subject,omitempty"`
 	Note    string `yaml:"note,omitempty" json:"note,omitempty"`
 }
 

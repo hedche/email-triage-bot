@@ -326,3 +326,62 @@ func TestAddressDomain(t *testing.T) {
 		}
 	}
 }
+
+// Bots and people share notifications@github.com, so a Sender Rule narrowed by
+// display name marks only the bot read. Name is a filter on top of the address
+// or domain, never a match on its own.
+func TestEngineSenderRuleNarrowedByName(t *testing.T) {
+	rs := RuleSet{Senders: []SenderRule{{Domain: "github.com", Name: "GitHub-Actions[bot]"}}}
+	engine := NewEngine(rs, 0.8)
+	tests := []struct {
+		name, email string
+		want        Tier
+		rule        string
+	}{
+		{"github-actions[bot]", "notifications@github.com", TierSender, "domain:github.com name:github-actions[bot]"},
+		{"Monty Rhodes", "notifications@github.com", TierNone, ""},
+		{"github-actions[bot]", "spoof@random.example", TierNone, ""},
+		{"github-actions[bot] via x", "notifications@github.com", TierNone, ""}, // exact name, not substring
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+" <"+tt.email+">", func(t *testing.T) {
+			got := engine.Evaluate(msg(tt.name, tt.email, "Run failed"))
+			if got.Tier != tt.want || got.Rule != tt.rule {
+				t.Errorf("tier=%q rule=%q, want %q %q", got.Tier, got.Rule, tt.want, tt.rule)
+			}
+		})
+	}
+}
+
+func TestEngineSenderRuleNarrowedBySubject(t *testing.T) {
+	rs := RuleSet{Senders: []SenderRule{{Domain: "trading212.com", Subject: "Deposit successful"}}}
+	engine := NewEngine(rs, 0.8)
+	if got := engine.Evaluate(msg("Trading 212", "no-reply@info.trading212.com", "💰 Deposit successful")); got.Tier != TierSender || got.Rule != "domain:trading212.com subject:deposit successful" {
+		t.Errorf("deposit: tier=%q rule=%q", got.Tier, got.Rule)
+	}
+	if got := engine.Evaluate(msg("Trading 212", "info@trading212.com", "212 Card Cashback is Changing")); got.Tier != TierNone {
+		t.Errorf("other subject: tier=%q, want none", got.Tier)
+	}
+}
+
+// Except lifts a Protect Rule for the named subjects only. The excepted mail
+// falls through to the later Tiers rather than being marked read outright.
+func TestEngineProtectExcept(t *testing.T) {
+	rs := RuleSet{
+		Protect: []ProtectRule{{Domain: "lloydsbank.co.uk", Except: []string{"Payment Completed"}}},
+		Senders: []SenderRule{{Domain: "lloydsbank.co.uk", Subject: "payment completed"}},
+	}
+	engine := NewEngine(rs, 0.8)
+	if got := engine.Evaluate(msg("Lloyds Bank", "donotreply@lloydsbank.co.uk", "Payment completed")); got.Tier != TierSender {
+		t.Errorf("excepted subject: tier=%q, want sender", got.Tier)
+	}
+	if got := engine.Evaluate(msg("Lloyds Bank", "donotreply@lloydsbank.co.uk", "New message about your Credit Card")); got.Tier != TierProtect {
+		t.Errorf("other subject: tier=%q, want protect", got.Tier)
+	}
+
+	// Excepted but with no later Rule: unmatched, never marked read.
+	bare := NewEngine(RuleSet{Protect: rs.Protect}, 0.8)
+	if got := bare.Evaluate(msg("Lloyds Bank", "donotreply@lloydsbank.co.uk", "Payment completed")); got.Tier != TierNone || got.Verdict != VerdictLeave {
+		t.Errorf("excepted with no rule: tier=%q verdict=%q, want none/leave", got.Tier, got.Verdict)
+	}
+}

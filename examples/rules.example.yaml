@@ -28,6 +28,10 @@ protect:
     note: anything from the school
   - keyword: invoice                  # case-insensitive subject substring
     note: money always gets a look
+  - domain: example-bank.com
+    except:                           # subjects this rule does NOT protect;
+      - payment completed             # they fall through to the tiers below
+    note: the bank, apart from its payment confirmations
 
 # Tier 2 — Senders. Always marked read, no AI involved.
 # Use this for machines that never say anything you need to act on.
@@ -36,6 +40,14 @@ senders:
     note: repository notifications
   - domain: example-post.com
     note: parcel tracking updates
+  # name and subject narrow a rule: both must match too when set. name is the
+  # exact display name and never works alone (display names are easy to forge).
+  - domain: example-forge.com
+    name: ci-bot[bot]
+    note: one bot on an address people also mail from
+  - domain: example-bank.com
+    subject: payment completed
+    note: pairs with the protect exception above
 
 # Tier 3 — Keywords. Always marked read when the subject contains the string.
 # Keep these specific; a short substring will catch more than you meant.
