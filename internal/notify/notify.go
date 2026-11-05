@@ -4,9 +4,11 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,6 +28,13 @@ const telegramAPI = "https://api.telegram.org"
 // Telegram, and a Notifier that cannot render markup may strip or ignore it.
 type Notifier interface {
 	Notify(ctx context.Context, text string) error
+}
+
+// DocumentNotifier is a Notifier that can also deliver a file. It is optional:
+// the run checks for it, so a Notifier that only sends text still works.
+type DocumentNotifier interface {
+	Notifier
+	NotifyDocument(ctx context.Context, filename string, content []byte, caption string) error
 }
 
 // telegram posts summaries to one chat through the Telegram Bot API.
@@ -77,6 +86,49 @@ func (t *telegram) Notify(ctx context.Context, text string) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("telegram sendMessage: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+// NotifyDocument uploads content to the chat as a file named filename. caption
+// is Telegram HTML, escaped like Notify's text.
+func (t *telegram) NotifyDocument(ctx context.Context, filename string, content []byte, caption string) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	for k, v := range map[string]string{"chat_id": t.chatID, "caption": caption, "parse_mode": "HTML"} {
+		if err := w.WriteField(k, v); err != nil {
+			return fmt.Errorf("telegram document: %w", err)
+		}
+	}
+	part, err := w.CreateFormFile("document", filename)
+	if err != nil {
+		return fmt.Errorf("telegram document: %w", err)
+	}
+	if _, err := part.Write(content); err != nil {
+		return fmt.Errorf("telegram document: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("telegram document: %w", err)
+	}
+
+	endpoint := strings.TrimSuffix(t.baseURL, "/") + "/bot" + t.token + "/sendDocument"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &body)
+	if err != nil {
+		return fmt.Errorf("telegram document request: %w", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("telegram sendDocument: %w", redact(err, t.token))
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("telegram sendDocument: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	return nil
 }
