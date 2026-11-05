@@ -19,12 +19,15 @@ type compiledProtect struct {
 	sender  string
 	domain  string
 	keyword string
+	except  []string // lower-cased subject substrings that lift the protection
 }
 
 type compiledSender struct {
 	rule    SenderRule
 	address string
 	domain  string
+	name    string // optional, exact display name
+	subject string // optional, subject substring
 }
 
 type compiledKeyword struct {
@@ -49,6 +52,7 @@ func NewEngine(rs RuleSet, threshold float64) *Engine {
 			sender:  strings.ToLower(strings.TrimSpace(r.Sender)),
 			domain:  strings.ToLower(strings.TrimSpace(r.Domain)),
 			keyword: strings.ToLower(strings.TrimSpace(r.Keyword)),
+			except:  lowerAll(r.Except),
 		})
 	}
 	for _, r := range rs.Senders {
@@ -56,6 +60,8 @@ func NewEngine(rs RuleSet, threshold float64) *Engine {
 			rule:    r,
 			address: strings.ToLower(strings.TrimSpace(r.Address)),
 			domain:  strings.ToLower(strings.TrimSpace(r.Domain)),
+			name:    strings.ToLower(strings.TrimSpace(r.Name)),
+			subject: strings.ToLower(strings.TrimSpace(r.Subject)),
 		})
 	}
 	for _, r := range rs.Keywords {
@@ -112,6 +118,9 @@ func (e *Engine) match(m Message) (Tier, string, *BrandRule) {
 	f := messageFields(m)
 
 	for _, p := range e.protect {
+		if p.excepted(f.subject) {
+			continue
+		}
 		switch {
 		case p.sender != "" && f.address == p.sender:
 			return TierProtect, "sender:" + p.sender, nil
@@ -123,11 +132,17 @@ func (e *Engine) match(m Message) (Tier, string, *BrandRule) {
 	}
 
 	for _, s := range e.senders {
+		if s.name != "" && f.name != s.name {
+			continue
+		}
+		if s.subject != "" && !strings.Contains(f.subject, s.subject) {
+			continue
+		}
 		switch {
 		case s.address != "" && f.address == s.address:
-			return TierSender, "address:" + s.address, nil
+			return TierSender, s.render("address:" + s.address), nil
 		case s.domain != "" && domainMatches(f.domain, s.domain):
-			return TierSender, "domain:" + s.domain, nil
+			return TierSender, s.render("domain:" + s.domain), nil
 		}
 	}
 
@@ -150,6 +165,38 @@ func (e *Engine) match(m Message) (Tier, string, *BrandRule) {
 	}
 
 	return TierNone, "", nil
+}
+
+// excepted reports whether subject names one of the Rule's exceptions.
+func (p compiledProtect) excepted(subject string) bool {
+	for _, x := range p.except {
+		if strings.Contains(subject, x) {
+			return true
+		}
+	}
+	return false
+}
+
+// render appends the Sender Rule's qualifiers to its rendered identity, so a
+// Decision says which of several rules on one address matched.
+func (s compiledSender) render(identity string) string {
+	if s.name != "" {
+		identity += " name:" + s.name
+	}
+	if s.subject != "" {
+		identity += " subject:" + s.subject
+	}
+	return identity
+}
+
+func lowerAll(in []string) []string {
+	var out []string
+	for _, v := range in {
+		if v = strings.ToLower(strings.TrimSpace(v)); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // Evaluate applies the Tiers in order and returns the Decision for a Message.

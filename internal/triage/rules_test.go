@@ -141,6 +141,21 @@ func TestLoadRulesValidation(t *testing.T) {
 			wantErr: "protect[0]: exactly one of sender, domain or keyword",
 		},
 		{
+			name:    "misspelt field",
+			body:    "senders:\n  - domain: github.com\n    nmae: github-actions[bot]\n",
+			wantErr: "field nmae not found",
+		},
+		{
+			name:    "sender with only a name",
+			body:    "senders:\n  - name: github-actions[bot]\n",
+			wantErr: "senders[0]: exactly one of address or domain",
+		},
+		{
+			name:    "empty protect exception",
+			body:    "protect:\n  - domain: b.com\n    except: [\"\"]\n",
+			wantErr: "protect[0].except[0]: must not be empty",
+		},
+		{
 			name:    "sender with no field",
 			body:    "senders:\n  - note: nothing\n",
 			wantErr: "senders[0]: exactly one of address or domain",

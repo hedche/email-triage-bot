@@ -1,7 +1,10 @@
 package triage
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -28,8 +31,13 @@ func LoadRules(path string) (*Rules, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read rules file: %w", err)
 	}
+	// Unknown fields are an error, not ignored: a misspelt qualifier such as
+	// "nmae:" under a Sender Rule would otherwise widen it to the whole
+	// address or domain, and mark mail read that the rule was meant to spare.
 	var f rulesFile
-	if err := yaml.Unmarshal(data, &f); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&f); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("parse rules file %s: %w", path, err)
 	}
 
@@ -82,6 +90,14 @@ func normaliseRuleSet(rs RuleSet, where string) (RuleSet, error) {
 		r.Domain = strings.ToLower(strings.TrimSpace(r.Domain))
 		r.Keyword = strings.TrimSpace(r.Keyword)
 		r.Note = strings.TrimSpace(r.Note)
+		var except []string
+		for j, x := range r.Except {
+			if x = strings.TrimSpace(x); x == "" {
+				return RuleSet{}, fmt.Errorf("%s.protect[%d].except[%d]: must not be empty", scope, i, j)
+			}
+			except = append(except, x)
+		}
+		r.Except = except
 		set := 0
 		for _, v := range []string{r.Sender, r.Domain, r.Keyword} {
 			if v != "" {
@@ -97,6 +113,8 @@ func normaliseRuleSet(rs RuleSet, where string) (RuleSet, error) {
 	for i, r := range rs.Senders {
 		r.Address = strings.ToLower(strings.TrimSpace(r.Address))
 		r.Domain = strings.ToLower(strings.TrimSpace(r.Domain))
+		r.Name = strings.TrimSpace(r.Name)
+		r.Subject = strings.TrimSpace(r.Subject)
 		r.Note = strings.TrimSpace(r.Note)
 		set := 0
 		for _, v := range []string{r.Address, r.Domain} {
