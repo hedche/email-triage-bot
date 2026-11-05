@@ -54,14 +54,13 @@ func (p *Provider) ListCommands(ctx context.Context, plusAddress string, lookbac
 
 func convertCommand(msg *gmailapi.Message) mailpkg.CommandMessage {
 	hdr := headers(msg.Payload)
-	plain, htmlBody := bodies(msg.Payload)
-	body := plain
-	if strings.TrimSpace(body) == "" {
-		body = textclean.Strip("", htmlBody, commandBodyMax)
-	}
-	if r := []rune(body); len(r) > commandBodyMax {
-		body = string(r[:commandBodyMax])
-	}
+	// Apple Mail splits a forward into several text parts with the forwarded
+	// message's attachments between them, so the first text/plain part is often
+	// only the note. Read every part.
+	var plains, htmls []string
+	allTextParts(msg.Payload, &plains, &htmls)
+	body := capText(strings.Join(plains, "\n"))
+	htmlText := capText(textclean.Text(strings.Join(htmls, "\n")))
 
 	var recipients []string
 	for _, name := range []string{"To", "Cc", "Delivered-To"} {
@@ -81,6 +80,7 @@ func convertCommand(msg *gmailapi.Message) mailpkg.CommandMessage {
 		Recipients: recipients,
 		Subject:    hdr.get("Subject"),
 		Body:       body,
+		HTMLText:   htmlText,
 		Sent:       sent,
 	}
 }
@@ -114,4 +114,31 @@ func addressList(values []string) []string {
 		}
 	}
 	return out
+}
+
+// allTextParts collects every text/plain and text/html part that is not an
+// attachment, depth-first, in document order.
+func allTextParts(part *gmailapi.MessagePart, plains, htmls *[]string) {
+	if part == nil {
+		return
+	}
+	mediaType, params := contentType(part)
+	if part.Filename == "" && part.Body != nil && part.Body.Data != "" {
+		switch mediaType {
+		case "text/plain":
+			*plains = append(*plains, decodeBody(part.Body.Data, params["charset"]))
+		case "text/html":
+			*htmls = append(*htmls, decodeBody(part.Body.Data, params["charset"]))
+		}
+	}
+	for _, child := range part.Parts {
+		allTextParts(child, plains, htmls)
+	}
+}
+
+func capText(s string) string {
+	if r := []rune(s); len(r) > commandBodyMax {
+		return string(r[:commandBodyMax])
+	}
+	return s
 }

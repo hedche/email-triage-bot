@@ -45,6 +45,7 @@ var (
 	wroteLine  = regexp.MustCompile(`(?i)^on .+ wrote:$`)
 	angleAddr  = regexp.MustCompile(`<([^<>\s]+@[^<>\s]+)>`)
 	bareAddr   = regexp.MustCompile(`[^\s<>"'*]+@[^\s<>"'*]+\.[a-z]{2,}`)
+	fwdSubject = regexp.MustCompile(`(?i)^\s*(fwd?|fw)\s*:`)
 	fwdPrefix  = regexp.MustCompile(`(?i)^\s*((fwd?|fw|re)\s*:\s*)+`)
 	headerLine = regexp.MustCompile(`(?i)^\*?(from|subject|date|sent|to|cc)\*?\s*:`)
 )
@@ -82,7 +83,10 @@ func Split(subject, body string) (instruction string, fwd *Forwarded) {
 	}
 
 	instruction = strings.TrimSpace(strings.Join(own, "\n"))
-	if fwd == nil {
+	// A "Fwd:" subject is the third party's subject, never the owner's words,
+	// even when the forwarded block itself was not recognised.
+	isForward := fwdSubject.MatchString(subject)
+	if fwd == nil && !isForward {
 		if s := strings.TrimSpace(fwdPrefix.ReplaceAllString(subject, "")); s != "" {
 			instruction = strings.TrimSpace(s + "\n" + instruction)
 		}

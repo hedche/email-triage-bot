@@ -236,3 +236,29 @@ func TestPlusAddress(t *testing.T) {
 		t.Errorf("got %q, %v", got, err)
 	}
 }
+
+func TestRunFallsBackToHTMLForForwardedHeaders(t *testing.T) {
+	store := &memStore{}
+	m := command("m1", true, "me@example.com")
+	m.Body = "mark these as done\n"
+	m.HTMLText = "mark these as done\nBegin forwarded message:\nFrom: News <digest@news.example>\nSubject: Weekly news\n"
+	src := &fakeSource{account: "me@example.com", msgs: []mail.CommandMessage{m}}
+	var seen Request
+	interp := recordingInterp{req: &seen}
+	r := newRunner(store, src, &fakeMessenger{}, Raw{})
+	r.Interpreter = interp
+	if _, err := r.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Instruction != "mark these as done" || seen.Forwarded == nil || seen.Forwarded.Address != "digest@news.example" {
+		t.Errorf("request %+v (forwarded %+v)", seen, seen.Forwarded)
+	}
+}
+
+type recordingInterp struct{ req *Request }
+
+func (recordingInterp) Name() string { return "recording" }
+func (f recordingInterp) Interpret(_ context.Context, req Request) (Raw, error) {
+	*f.req = req
+	return Raw{}, nil
+}
