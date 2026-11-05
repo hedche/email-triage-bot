@@ -36,3 +36,25 @@ type Provider interface {
 	// Label applies the label to ids without changing unread state.
 	Label(ctx context.Context, ids []string, labelID string) error
 }
+
+// CommandMessage is one message that may be an Email Command: a message the
+// Account owner sent to their own plus-address. The fields are what the
+// command subcommand needs to verify it and read the instruction.
+type CommandMessage struct {
+	ID         string
+	From       string   // the From address, lower-cased
+	Recipients []string // To, Cc and Delivered-To addresses, lower-cased
+	Subject    string
+	Body       string // the text/plain body (or stripped HTML), capped
+	Sent       bool   // carries the provider's SENT label: the owner sent it
+}
+
+// CommandSource is implemented by Providers that can find Email Commands.
+type CommandSource interface {
+	Account() string
+	// ListCommands returns messages addressed to plusAddress, received within
+	// lookbackDays, newest first, at most max of them.
+	ListCommands(ctx context.Context, plusAddress string, lookbackDays, max int) ([]CommandMessage, error)
+	EnsureLabels(ctx context.Context, names []string) (map[string]string, error)
+	MarkRead(ctx context.Context, ids []string, labelID string) error
+}

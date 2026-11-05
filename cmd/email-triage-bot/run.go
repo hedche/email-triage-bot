@@ -54,6 +54,14 @@ func cmdRun(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	overlay, err := triage.LoadOverlay(settings.RulesOverlayFile)
+	if err != nil {
+		return fail(err)
+	}
+	if len(overlay) > 0 {
+		rules = rules.WithOverlay(overlay)
+		log.Info("rules added by email loaded", "changes", len(overlay))
+	}
 	accounts, err := config.LoadAccounts(settings.AccountsFile)
 	if err != nil {
 		return fail(err)

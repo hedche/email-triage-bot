@@ -2,6 +2,7 @@
 // queue of every configured Account.
 //
 //	email-triage-bot run     [--dry-run[=false]] [--account EMAIL] [--decisions-out PATH]
+//	email-triage-bot commands [--account EMAIL] [--overlay PATH]
 //	email-triage-bot auth    [--email EMAIL]
 //	email-triage-bot replay  --decisions PATH --rules PATH [--account EMAIL]
 //	email-triage-bot version
@@ -22,6 +23,7 @@ const usageText = `email-triage-bot - triage the unread queue of one or more mai
 
 Usage:
   email-triage-bot run     [--dry-run[=false]] [--account EMAIL] [--decisions-out PATH]
+  email-triage-bot commands [--account EMAIL] [--overlay PATH]
   email-triage-bot auth    [--email EMAIL]
   email-triage-bot replay  --decisions PATH --rules PATH [--account EMAIL]
   email-triage-bot version
@@ -43,6 +45,8 @@ func dispatch(args []string) int {
 	switch args[0] {
 	case "run":
 		return cmdRun(args[1:])
+	case "commands":
+		return cmdCommands(args[1:])
 	case "auth":
 		return cmdAuth(args[1:])
 	case "replay":
