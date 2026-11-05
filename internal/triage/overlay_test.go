@@ -3,6 +3,7 @@ package triage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -112,5 +113,22 @@ func TestLoadOverlay(t *testing.T) {
 	_ = os.WriteFile(bad, []byte("changes:\n  - id: b\n    op: read_domain\n    value: nodot\n"), 0o600)
 	if _, err := LoadOverlay(bad); err == nil {
 		t.Error("an invalid change should fail the load")
+	}
+}
+
+func TestSenderChangeWithSubject(t *testing.T) {
+	c := Change{Op: OpReadSender, Value: "servicing@email.chase.co.uk", Subject: " Your statement is ready "}.Normalise()
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(c.Describe(), `whose subject contains "Your statement is ready"`) {
+		t.Errorf("describe %q", c.Describe())
+	}
+	rs := (&Rules{}).WithOverlay([]Change{c}).For("x@example.com")
+	if len(rs.Senders) != 1 || rs.Senders[0].Subject != "Your statement is ready" || rs.Senders[0].Address != c.Value {
+		t.Errorf("senders %+v", rs.Senders)
+	}
+	if (Change{Op: OpProtectSender, Value: "a@b.example", Subject: "x"}).Normalise().Subject != "" {
+		t.Error("subject must be dropped for ops that do not take it")
 	}
 }
