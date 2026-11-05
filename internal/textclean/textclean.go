@@ -46,6 +46,13 @@ func Strip(plain, htmlBody string, max int) string {
 	return capRunes(text, max)
 }
 
+// Text turns an HTML body into plain text with its line structure kept and
+// nothing cut off: unlike Strip, quoted replies and forwarded blocks survive,
+// because Email Commands need to read the forwarded headers.
+func Text(htmlBody string) string {
+	return strings.TrimSpace(collapse(removeInvisible(stripHTML(htmlBody))))
+}
+
 // stripHTML turns an HTML body into plain text: scripts and styles go with
 // their content, line-ending tags become newlines, every other tag is dropped
 // and entities are unescaped.

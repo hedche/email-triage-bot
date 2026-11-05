@@ -211,6 +211,24 @@ func (r *Runner) handleCommands(ctx context.Context, i int, src mail.CommandSour
 
 func (r *Runner) handleOne(ctx context.Context, account string, m mail.CommandMessage, st *State, post *after, rep *Report) {
 	instruction, fwd := Split(m.Subject, m.Body)
+	if strings.TrimSpace(m.Body) == "" {
+		instruction, fwd = Split(m.Subject, m.HTMLText)
+	} else if fwd == nil && m.HTMLText != "" {
+		// The plain text lost the forwarded headers (some clients put them only
+		// in the HTML part). Take the sender and subject from there; the note
+		// still comes from the plain text.
+		if _, htmlFwd := Split("", m.HTMLText); htmlFwd != nil {
+			fwd = htmlFwd
+			instruction, _ = Split("", m.Body)
+		}
+	}
+	fwdDomain := ""
+	if fwd != nil {
+		fwdDomain = fwd.Domain()
+	}
+	r.Log.Info("email command read", "account", account, "message_id", m.ID,
+		"forwarded", fwd != nil, "forwarded_domain", fwdDomain,
+		"plain_chars", len(m.Body), "html_chars", len(m.HTMLText))
 	head := fmt.Sprintf("📮 <b>%s</b>: “%s”", esc(account), esc(shorten(instruction, 200)))
 	if instruction == "" {
 		post.notices = append(post.notices, head+"\nNo instruction found. Write what you want above the forwarded message.")
@@ -249,6 +267,9 @@ func (r *Runner) handleOne(ctx context.Context, account string, m mail.CommandMe
 
 	var b strings.Builder
 	b.WriteString(head)
+	if fwd == nil {
+		b.WriteString("\n<i>No forwarded email found in your message, so only your note was used.</i>")
+	}
 	if len(now) > 0 || len(removeNow) > 0 {
 		lines := removedLines(st, removeNow)
 		rep.Applied += r.apply(st, now, removeNow)

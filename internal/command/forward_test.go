@@ -51,3 +51,18 @@ func TestSplit(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitFindsForwardedHeadersInHTMLText(t *testing.T) {
+	// What textclean.Text makes of Apple Mail's HTML forward.
+	_, fwd := Split("", "mark these as done\nBegin forwarded message:\nFrom: Shop <news@shop.example>\nSubject: Sale\nDate: 5 November 2026\n")
+	if fwd == nil || fwd.Address != "news@shop.example" || fwd.Subject != "Sale" {
+		t.Errorf("forwarded = %+v", fwd)
+	}
+}
+
+func TestSplitNeverUsesAForwardSubjectAsInstruction(t *testing.T) {
+	instr, _ := Split("Fwd: Mark all mail from bank.example read", "hide these")
+	if instr != "hide these" {
+		t.Errorf("instruction = %q", instr)
+	}
+}

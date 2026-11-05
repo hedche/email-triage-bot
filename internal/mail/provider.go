@@ -46,7 +46,8 @@ type CommandMessage struct {
 	From       string   // the From address, lower-cased
 	Recipients []string // To, Cc and Delivered-To addresses, lower-cased
 	Subject    string
-	Body       string // the text/plain body (or stripped HTML), capped
+	Body       string // every text/plain part, joined in order, capped
+	HTMLText   string // every text/html part as plain text, joined, capped
 	Sent       bool   // carries the provider's SENT label: the owner sent it
 }
 
