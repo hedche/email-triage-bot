@@ -210,16 +210,16 @@ func (r *Runner) handleCommands(ctx context.Context, i int, src mail.CommandSour
 }
 
 func (r *Runner) handleOne(ctx context.Context, account string, m mail.CommandMessage, st *State, post *after, rep *Report) {
-	instruction, fwd := Split(m.Subject, m.Body)
+	instruction, fwd := SplitFor(account, m.Subject, m.Body)
 	if strings.TrimSpace(m.Body) == "" {
-		instruction, fwd = Split(m.Subject, m.HTMLText)
+		instruction, fwd = SplitFor(account, m.Subject, m.HTMLText)
 	} else if fwd == nil && m.HTMLText != "" {
 		// The plain text lost the forwarded headers (some clients put them only
 		// in the HTML part). Take the sender and subject from there; the note
 		// still comes from the plain text.
-		if _, htmlFwd := Split("", m.HTMLText); htmlFwd != nil {
+		if _, htmlFwd := SplitFor(account, "", m.HTMLText); htmlFwd != nil {
 			fwd = htmlFwd
-			instruction, _ = Split("", m.Body)
+			instruction, _ = SplitFor(account, "", m.Body)
 		}
 	}
 	fwdDomain := ""

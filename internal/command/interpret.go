@@ -144,6 +144,10 @@ func Ground(req Request, raw Raw) Interpretation {
 			continue
 		}
 		c = narrow(c, instr, req.Forwarded)
+		if hidesOwnMail(c, req.Account) {
+			out.Rejected = append(out.Rejected, fmt.Sprintf("%s: %q would mark your own mail read", c.Op, c.Value))
+			continue
+		}
 		if c.Subject != "" && !strings.Contains(instr, strings.ToLower(c.Subject)) &&
 			(req.Forwarded == nil || !strings.Contains(strings.ToLower(req.Forwarded.Subject), strings.ToLower(c.Subject))) {
 			out.Rejected = append(out.Rejected, fmt.Sprintf("%s: subject %q is not in your instruction or the forwarded email", c.Op, c.Subject))
@@ -175,6 +179,19 @@ func Ground(req Request, raw Raw) Interpretation {
 		}
 	}
 	return out
+}
+
+// hidesOwnMail reports whether a read Change would match mail from the
+// Account itself (or its whole domain, e.g. gmail.com).
+func hidesOwnMail(c triage.Change, account string) bool {
+	_, domain, _ := strings.Cut(account, "@")
+	switch c.Op {
+	case triage.OpReadSender:
+		return strings.EqualFold(c.Value, account)
+	case triage.OpReadDomain:
+		return domain != "" && (strings.EqualFold(domain, c.Value) || strings.HasSuffix(domain, "."+c.Value))
+	}
+	return false
 }
 
 // broadWords say the owner means a whole company, not one kind of email.

@@ -55,6 +55,12 @@ var (
 // instruction only when nothing was forwarded, because a forward's subject is
 // "Fwd: <the third party's subject>".
 func Split(subject, body string) (instruction string, fwd *Forwarded) {
+	return SplitFor("", subject, body)
+}
+
+// SplitFor is Split for one Account: a forwarded block sent by self (a forward
+// of a forward) is skipped in favour of the message inside it.
+func SplitFor(self, subject, body string) (instruction string, fwd *Forwarded) {
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
 
 	var own []string
@@ -79,7 +85,7 @@ func Split(subject, body string) (instruction string, fwd *Forwarded) {
 	}
 
 	if rest >= 0 {
-		fwd = parseForwardedHeaders(lines[rest:])
+		fwd = parseForwardedHeaders(lines[rest:], self)
 	}
 
 	instruction = strings.TrimSpace(strings.Join(own, "\n"))
@@ -116,40 +122,44 @@ func headerBlockFollows(lines []string) bool {
 }
 
 // parseForwardedHeaders reads From and Subject from the first header block in
-// lines. It returns nil when no From address can be found.
-func parseForwardedHeaders(lines []string) *Forwarded {
-	f := &Forwarded{}
-	inBlock := false
+// lines whose sender is not self. Forwarding a forward nests the blocks, and
+// the outer one is from the owner's own address; the message they mean is the
+// innermost one that someone else sent. A From line starts a new block, since
+// HTML text keeps no blank lines to separate them. It returns nil when no
+// such block is found.
+func parseForwardedHeaders(lines []string, self string) *Forwarded {
+	var cur *Forwarded
+	usable := func(f *Forwarded) bool {
+		return f != nil && f.Address != "" && !strings.EqualFold(f.Address, self)
+	}
 	for i, line := range lines {
-		if i > 25 {
+		if i > 400 {
 			break
 		}
 		t := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), ">"))
 		if !headerLine.MatchString(t) {
-			if inBlock && t == "" {
-				break // the blank line after the header block
-			}
 			continue
 		}
-		inBlock = true
 		key, value, _ := strings.Cut(t, ":")
 		key = strings.ToLower(strings.Trim(key, "* "))
 		value = strings.TrimSpace(strings.Trim(strings.TrimSpace(value), "*"))
 		switch key {
 		case "from":
-			if f.Address == "" {
-				f.Name, f.Address = parseAddress(value)
+			if usable(cur) {
+				return cur
 			}
+			cur = &Forwarded{}
+			cur.Name, cur.Address = parseAddress(value)
 		case "subject":
-			if f.Subject == "" {
-				f.Subject = value
+			if cur != nil && cur.Subject == "" {
+				cur.Subject = value
 			}
 		}
 	}
-	if f.Address == "" {
-		return nil
+	if usable(cur) {
+		return cur
 	}
-	return f
+	return nil
 }
 
 func parseAddress(v string) (name, address string) {
