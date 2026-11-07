@@ -66,3 +66,15 @@ func TestSplitNeverUsesAForwardSubjectAsInstruction(t *testing.T) {
 		t.Errorf("instruction = %q", instr)
 	}
 }
+
+func TestSplitForSkipsTheOwnersForwardOfAForward(t *testing.T) {
+	// A forward of an earlier +triage forward, as HTML text (no blank lines).
+	body := "mark these as done\nBegin forwarded message:\nFrom: Me <me@example.com>\nSubject: Fwd: Your statement\nDate: 5 Nov\nmark these as done\nBegin forwarded message:\nFrom: Chase <servicing@email.chase.co.uk>\nSubject: Your statement\nhello"
+	_, fwd := SplitFor("me@example.com", "Fwd: Fwd: Your statement", body)
+	if fwd == nil || fwd.Address != "servicing@email.chase.co.uk" || fwd.Subject != "Your statement" {
+		t.Errorf("forwarded = %+v", fwd)
+	}
+	if _, only := SplitFor("me@example.com", "", "x\nBegin forwarded message:\nFrom: me@example.com\nSubject: s\n"); only != nil {
+		t.Errorf("a forward of only your own mail should give no forwarded sender, got %+v", only)
+	}
+}

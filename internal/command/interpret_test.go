@@ -92,3 +92,16 @@ func TestGroundRejectsASubjectNobodySupplied(t *testing.T) {
 		t.Errorf("add %+v rejected %v", got.Add, got.Rejected)
 	}
 }
+
+func TestGroundNeverHidesTheAccountsOwnMail(t *testing.T) {
+	req := Request{Account: "me@gmail.com", Instruction: "hide all of these from me@gmail.com and gmail.com"}
+	raw := Raw{Changes: []RawChange{
+		{Op: "read_sender", Value: "me@gmail.com"},
+		{Op: "read_domain", Value: "gmail.com"},
+		{Op: "protect_sender", Value: "me@gmail.com"},
+	}}
+	got := Ground(req, raw)
+	if len(got.Add) != 1 || got.Add[0].Op != triage.OpProtectSender || len(got.Rejected) != 2 {
+		t.Errorf("add %+v rejected %v", got.Add, got.Rejected)
+	}
+}
