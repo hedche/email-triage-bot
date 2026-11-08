@@ -6,6 +6,7 @@
 //	email-triage-bot listen   [--account EMAIL] [--overlay PATH] [--mail-every 1m]
 //	email-triage-bot auth    [--email EMAIL]
 //	email-triage-bot replay  --decisions PATH --rules PATH [--overlay PATH] [--account EMAIL]
+//	email-triage-bot backfill --logs PATH --source NAME --before RFC3339 [--dry-run=false]
 //	email-triage-bot version
 package main
 
@@ -28,6 +29,7 @@ Usage:
   email-triage-bot listen   [--account EMAIL] [--overlay PATH] [--mail-every 1m]
   email-triage-bot auth    [--email EMAIL]
   email-triage-bot replay  --decisions PATH --rules PATH [--overlay PATH] [--account EMAIL]
+  email-triage-bot backfill --logs PATH --source NAME --before RFC3339 [--dry-run=false]
   email-triage-bot version
 
 Configuration comes from the environment; see docs/design.md for the full table.
@@ -55,6 +57,8 @@ func dispatch(args []string) int {
 		return cmdAuth(args[1:])
 	case "replay":
 		return cmdReplay(args[1:])
+	case "backfill":
+		return cmdBackfill(args[1:])
 	case "version":
 		fmt.Println(version)
 		return 0

@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,17 @@ import (
 type Store interface {
 	Put(ctx context.Context, key string, body []byte, contentType string) error
 }
+
+// ReadStore is a Store that can also read an object back. Only the backfill
+// needs it: no Triage Run reads the archive (ADR 0006).
+type ReadStore interface {
+	Store
+	// Get returns an object's bytes, or ErrNotFound when the key is empty.
+	Get(ctx context.Context, key string) ([]byte, error)
+}
+
+// ErrNotFound is what Get returns for a key that holds no object.
+var ErrNotFound = errors.New("archive: object not found")
 
 // Config locates a bucket. The field names mirror what a Rook
 // ObjectBucketClaim publishes (BUCKET_HOST, BUCKET_PORT, BUCKET_NAME,
@@ -89,26 +101,59 @@ func (s *S3) Put(ctx context.Context, key string, body []byte, contentType strin
 	return nil
 }
 
-// sign adds the AWS Signature V4 headers for a PUT with no query string.
+// Get downloads key, returning ErrNotFound when no object is there.
+func (s *S3) Get(ctx context.Context, key string) ([]byte, error) {
+	scheme, host := s.endpoint()
+	path := "/" + s.cfg.Bucket + "/" + strings.TrimPrefix(key, "/")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+host+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("archive %s: %w", key, err)
+	}
+	s.sign(req, host, path, nil, "")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("archive %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrNotFound
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("archive %s: status %d: %s", key, resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("archive %s: %w", key, err)
+	}
+	return body, nil
+}
+
+// sign adds the AWS Signature V4 headers for a request with no query string.
+// contentType is empty for a GET, which has no body to describe.
 func (s *S3) sign(req *http.Request, host, path string, body []byte, contentType string) {
 	now := s.now().UTC()
 	amzDate, day := now.Format("20060102T150405Z"), now.Format("20060102")
 	payload := sha256Hex(body)
 
-	req.Header.Set("Content-Type", contentType)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 	req.Header.Set("X-Amz-Content-Sha256", payload)
 	req.Header.Set("X-Amz-Date", amzDate)
 
-	const signedHeaders = "content-type;host;x-amz-content-sha256;x-amz-date"
-	canonical := strings.Join([]string{
-		http.MethodPut, path, "",
-		"content-type:" + contentType,
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	headerLines := []string{
 		"host:" + host,
 		"x-amz-content-sha256:" + payload,
 		"x-amz-date:" + amzDate,
-		"",
-		signedHeaders, payload,
-	}, "\n")
+	}
+	if contentType != "" {
+		signedHeaders = "content-type;" + signedHeaders
+		headerLines = append([]string{"content-type:" + contentType}, headerLines...)
+	}
+	canonical := strings.Join(append(append([]string{req.Method, path, ""}, headerLines...), "", signedHeaders, payload), "\n")
 	scope := day + "/" + s.cfg.Region + "/s3/aws4_request"
 	toSign := strings.Join([]string{"AWS4-HMAC-SHA256", amzDate, scope, sha256Hex([]byte(canonical))}, "\n")
 

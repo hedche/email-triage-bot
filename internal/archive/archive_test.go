@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -69,5 +70,29 @@ func TestGzipJSONL(t *testing.T) {
 	out, _ := io.ReadAll(zr)
 	if string(out) != "{\"a\":1}\n{\"b\":2}\n" {
 		t.Errorf("got %q", out)
+	}
+}
+
+func TestGetReadsAnObjectAndReportsAMissingOne(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.Header.Get("Authorization") == "" || r.Header.Get("Content-Type") != "" {
+			t.Errorf("unexpected request: %s %v", r.Method, r.Header)
+		}
+		if strings.HasSuffix(r.URL.Path, "/missing") {
+			http.Error(w, "NoSuchKey", http.StatusNotFound)
+			return
+		}
+		io.WriteString(w, "data")
+	}))
+	defer srv.Close()
+	host, port, _ := strings.Cut(strings.TrimPrefix(srv.URL, "http://"), ":")
+	s := New(Config{Host: host, Port: port, Bucket: "b", AccessKey: "AK", SecretKey: "SK"}).(*S3)
+
+	body, err := s.Get(context.Background(), "runs/there")
+	if err != nil || string(body) != "data" {
+		t.Fatalf("body %q err %v", body, err)
+	}
+	if _, err := s.Get(context.Background(), "runs/missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }

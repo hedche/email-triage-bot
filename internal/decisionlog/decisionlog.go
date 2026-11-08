@@ -34,6 +34,11 @@ type MessageSummary struct {
 type Record struct {
 	Decision triage.Decision `json:"decision"`
 	Message  MessageSummary  `json:"message"`
+	// Backfilled and Source mark a Record rebuilt after the fact from logs
+	// rather than written by the run itself. A run's own Records leave both
+	// empty, so they never appear in its output.
+	Backfilled bool   `json:"backfilled,omitempty"`
+	Source     string `json:"source,omitempty"`
 }
 
 // Summarise reduces a scanned Message to what the Decision Log keeps.

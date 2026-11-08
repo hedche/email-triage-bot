@@ -6,7 +6,7 @@ owns the vocabulary; docs/adr/ owns the why. This owns the shapes.
 ## Module layout
 
 ```
-cmd/email-triage-bot/      CLI: run | commands | listen | auth | replay | version
+cmd/email-triage-bot/      CLI: run | commands | listen | auth | replay | backfill | version
 internal/triage/           domain types (types.go) + rules engine (engine.go) + rules loading (rules.go)
 internal/config/           Settings from env; accounts file loading
 internal/textclean/        HTML/plain-text stripping and capping for message bodies

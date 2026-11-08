@@ -3,8 +3,10 @@ package gmail
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"html"
 	"mime"
+	"net/http"
 	"net/mail"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/hedche/email-triage-bot/internal/textclean"
 	"github.com/hedche/email-triage-bot/internal/triage"
 	gmailapi "google.golang.org/api/gmail/v1"
+	"google.golang.org/api/googleapi"
 )
 
 // Fetch scans one message: headers, snippet and a stripped, capped body. It
@@ -27,6 +30,26 @@ func (p *Provider) Fetch(ctx context.Context, id string, bodyMax int) (*triage.M
 		return nil, err
 	}
 	return p.convert(msg, bodyMax), nil
+}
+
+// RFCMessageID reads a message's Message-ID header using metadata format only:
+// no body, and nothing in the mailbox changes. It returns "" when the message
+// no longer exists or has no such header.
+func (p *Provider) RFCMessageID(ctx context.Context, id string) (string, error) {
+	var msg *gmailapi.Message
+	err := p.do(ctx, "messages.get(metadata)", id, func() error {
+		var gerr error
+		msg, gerr = p.svc.Users.Messages.Get(userID, id).Format("metadata").MetadataHeaders("Message-ID").Context(ctx).Do()
+		return gerr
+	})
+	if err != nil {
+		var gerr *googleapi.Error
+		if errors.As(err, &gerr) && gerr.Code == http.StatusNotFound {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(headers(msg.Payload).get("Message-ID")), nil
 }
 
 func (p *Provider) convert(msg *gmailapi.Message, bodyMax int) *triage.Message {
