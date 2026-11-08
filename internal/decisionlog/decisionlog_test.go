@@ -62,6 +62,7 @@ func TestSummariseDropsTheBody(t *testing.T) {
 	got := Summarise(msg)
 
 	want := MessageSummary{
+		Ref:      msg.Ref(),
 		ID:       msg.ID,
 		Account:  msg.Account,
 		From:     msg.From,

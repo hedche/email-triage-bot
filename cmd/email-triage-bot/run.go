@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/hedche/email-triage-bot/internal/archive"
 	"github.com/hedche/email-triage-bot/internal/config"
 	"github.com/hedche/email-triage-bot/internal/decisionlog"
 	"github.com/hedche/email-triage-bot/internal/judge"
@@ -100,6 +101,7 @@ func cmdRun(args []string) int {
 		Judge:     judgeImpl,
 		Log:       log,
 		Decisions: decisions,
+		Archive:   buildArchive(settings),
 		Notifier:  buildNotifier(settings),
 	})
 
@@ -166,6 +168,14 @@ func buildJudge(s *config.Settings) (judge.Judge, error) {
 	default:
 		return nil, fmt.Errorf("unknown judge provider %q", s.JudgeProvider)
 	}
+}
+
+// buildArchive returns nil when no bucket is configured.
+func buildArchive(s *config.Settings) archive.Store {
+	return archive.New(archive.Config{
+		Host: s.ArchiveHost, Port: s.ArchivePort, Bucket: s.ArchiveBucket, Region: s.ArchiveRegion,
+		AccessKey: s.ArchiveAccessKey, SecretKey: s.ArchiveSecretKey,
+	})
 }
 
 func buildNotifier(s *config.Settings) notify.Notifier {

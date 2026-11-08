@@ -47,6 +47,14 @@ type Settings struct {
 	HealthcheckPingURL string
 	DecisionsOut       string
 
+	// Archive bucket (an ObjectBucketClaim's BUCKET_* and AWS_* values).
+	ArchiveBucket    string
+	ArchiveHost      string
+	ArchivePort      string
+	ArchiveRegion    string
+	ArchiveAccessKey string
+	ArchiveSecretKey string
+
 	// Email Commands (the commands subcommand).
 	OverlaySecret            string
 	CommandTag               string
@@ -102,6 +110,12 @@ func LoadFrom(lookup func(string) string) (*Settings, error) {
 		TelegramChatID:     get("TELEGRAM_CHAT_ID", ""),
 		HealthcheckPingURL: get("HEALTHCHECK_PING_URL", ""),
 		DecisionsOut:       get("DECISIONS_OUT", ""),
+		ArchiveBucket:      get("BUCKET_NAME", ""),
+		ArchiveHost:        get("BUCKET_HOST", ""),
+		ArchivePort:        get("BUCKET_PORT", ""),
+		ArchiveRegion:      get("BUCKET_REGION", ""),
+		ArchiveAccessKey:   get("AWS_ACCESS_KEY_ID", ""),
+		ArchiveSecretKey:   get("AWS_SECRET_ACCESS_KEY", ""),
 		OverlaySecret:      get("OVERLAY_SECRET", ""),
 		CommandTag:         strings.ToLower(get("COMMAND_TAG", "triage")),
 		CommandLabel:       get("LABEL_COMMAND", "Triage/Command"),

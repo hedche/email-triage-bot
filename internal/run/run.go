@@ -12,13 +12,16 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/hedche/email-triage-bot/internal/archive"
 	"github.com/hedche/email-triage-bot/internal/config"
 	"github.com/hedche/email-triage-bot/internal/decisionlog"
 	"github.com/hedche/email-triage-bot/internal/judge"
@@ -36,6 +39,7 @@ type Options struct {
 	Judge     judge.Judge // nil when JUDGE_PROVIDER=none: the Brand tier is disabled
 	Log       *slog.Logger
 	Decisions *decisionlog.Writer // nil when no Decision Log is wanted
+	Archive   archive.Store       // nil when no archive bucket is configured
 	Notifier  notify.Notifier     // nil means no summary is delivered
 	RunID     string              // generated when empty
 	Now       func() time.Time    // time.Now when nil
@@ -49,6 +53,9 @@ type Runner struct {
 	now  func() time.Time
 
 	runID string
+
+	archiveMu sync.Mutex
+	archived  []decisionlog.Record
 	// judgeCallsLeft is the whole run's Judge budget, shared across Accounts.
 	judgeCallsLeft int
 }
@@ -136,6 +143,8 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		"accounts", sum.logAccounts(),
 	)
 
+	archiveErr := r.archiveRun(ctx, sum)
+
 	// Notifying and pinging are best-effort: neither can fail a run that
 	// otherwise did its job, and neither can rescue one that did not.
 	if err := r.opts.Notifier.Notify(ctx, sum.TelegramHTML()); err != nil {
@@ -151,6 +160,11 @@ func (r *Runner) Run(ctx context.Context) (Summary, error) {
 		}
 		if err := dn.NotifyDocument(ctx, "triage-"+r.runID+".html", []byte(sum.ReportHTML()), caption); err != nil {
 			r.log.Error("notify report failed", "run_id", r.runID, "error", err.Error())
+		}
+	}
+	if archiveErr != nil {
+		if err := r.opts.Notifier.Notify(ctx, "⚠️ This run's results could not be archived; see the logs."); err != nil {
+			r.log.Error("notify failed", "run_id", r.runID, "error", err.Error())
 		}
 	}
 	if !sum.Failed() && r.opts.Settings != nil && r.opts.Settings.HealthcheckPingURL != "" {
@@ -531,6 +545,39 @@ func downgrade(pds []*pending) {
 }
 
 // record emits the per-Message telemetry and appends to the Decision Log.
+// archiveRun stores this run's records and summary. It is best-effort: an
+// error is logged and returned for a warning, and never fails the run.
+func (r *Runner) archiveRun(ctx context.Context, sum Summary) error {
+	if r.opts.Archive == nil {
+		return nil
+	}
+	r.archiveMu.Lock()
+	records := r.archived
+	r.archiveMu.Unlock()
+
+	at := r.now()
+	err := func() error {
+		body, err := archive.GzipJSONL(records)
+		if err != nil {
+			return err
+		}
+		if err := r.opts.Archive.Put(ctx, archive.RunKey(at, r.runID), body, "application/gzip"); err != nil {
+			return err
+		}
+		summary, err := json.Marshal(sum)
+		if err != nil {
+			return err
+		}
+		return r.opts.Archive.Put(ctx, archive.RunSummaryKey(at, r.runID), summary, "application/json")
+	}()
+	if err != nil {
+		r.log.Error("archiving the run failed", "run_id", r.runID, "error", err.Error())
+		return err
+	}
+	r.log.Info("run archived", "run_id", r.runID, "records", len(records))
+	return nil
+}
+
 func (r *Runner) record(pd *pending) {
 	d := pd.decision
 	attrs := []any{
@@ -555,13 +602,16 @@ func (r *Runner) record(pd *pending) {
 	}
 	r.log.Info("decision", attrs...)
 
+	rec := decisionlog.Record{Decision: d, Message: decisionlog.Summarise(pd.msg)}
+	if r.opts.Archive != nil {
+		r.archiveMu.Lock()
+		r.archived = append(r.archived, rec)
+		r.archiveMu.Unlock()
+	}
 	if r.opts.Decisions == nil {
 		return
 	}
-	if err := r.opts.Decisions.Append(decisionlog.Record{
-		Decision: d,
-		Message:  decisionlog.Summarise(pd.msg),
-	}); err != nil {
+	if err := r.opts.Decisions.Append(rec); err != nil {
 		r.log.Error("decision log append failed",
 			"run_id", d.RunID, "account", d.Account, "message_id", d.MessageID, "error", err.Error())
 	}

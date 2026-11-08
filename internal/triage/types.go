@@ -55,15 +55,18 @@ func (a Address) Domain() string {
 // Message is one email as scanned. Body is already stripped and capped by
 // the Provider; the engine never sees raw HTML.
 type Message struct {
-	ID       string    `json:"id"`
-	ThreadID string    `json:"thread_id,omitempty"`
-	Account  string    `json:"account"`
-	From     Address   `json:"from"`
-	Subject  string    `json:"subject"`
-	Snippet  string    `json:"snippet"`
-	Body     string    `json:"body,omitempty"` // omitted from the Decision Log
-	Received time.Time `json:"received"`
-	Labels   []string  `json:"labels,omitempty"` // provider label IDs/names as fetched
+	ID       string `json:"id"`
+	ThreadID string `json:"thread_id,omitempty"`
+	Account  string `json:"account"`
+	// RFCMessageID is the Message-ID header: the same in every run, and what
+	// a Gmail search for rfc822msgid: finds the message by.
+	RFCMessageID string    `json:"rfc_message_id,omitempty"`
+	From         Address   `json:"from"`
+	Subject      string    `json:"subject"`
+	Snippet      string    `json:"snippet"`
+	Body         string    `json:"body,omitempty"` // omitted from the Decision Log
+	Received     time.Time `json:"received"`
+	Labels       []string  `json:"labels,omitempty"` // provider label IDs/names as fetched
 }
 
 // ---- Rules -----------------------------------------------------------------

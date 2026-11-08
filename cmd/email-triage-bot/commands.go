@@ -90,6 +90,7 @@ func commandsMain(name string, args []string) int {
 		Sources:     sources,
 		Interpreter: interp,
 		Messenger:   messenger,
+		Archive:     buildArchive(settings),
 		Log:         log,
 		Tag:         settings.CommandTag,
 		Label:       settings.CommandLabel,

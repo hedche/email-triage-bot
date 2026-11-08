@@ -256,6 +256,35 @@ func TestRunOnceWithoutMailOnlyHandlesTapsAndSavesOnlyOnChange(t *testing.T) {
 	}
 }
 
+type memArchive struct{ keys, bodies []string }
+
+func (m *memArchive) Put(_ context.Context, key string, body []byte, _ string) error {
+	m.keys, m.bodies = append(m.keys, key), append(m.bodies, string(body))
+	return nil
+}
+
+func TestRunArchivesCommandEventsAfterSaving(t *testing.T) {
+	store := &memStore{}
+	src := &fakeSource{account: "me@example.com", msgs: []mail.CommandMessage{command("m1", true, "me@example.com")}}
+	r := newRunner(store, src, &fakeMessenger{}, Raw{Changes: []RawChange{
+		{Op: "read_sender", Value: "digest@news.example"},
+		{Op: "protect_keyword", Value: "the boss"},
+	}})
+	arch := &memArchive{}
+	r.Archive = arch
+	if _, err := r.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(arch.keys) != 1 || !strings.HasPrefix(arch.keys[0], "commands/2026/11/05/") {
+		t.Fatalf("keys %v", arch.keys)
+	}
+	for _, want := range []string{`"type":"applied"`, `"type":"proposed"`} {
+		if !strings.Contains(arch.bodies[0], want) {
+			t.Errorf("missing %s in %s", want, arch.bodies[0])
+		}
+	}
+}
+
 func TestPlusAddress(t *testing.T) {
 	got, err := PlusAddress("first.last+old@gmail.com", "triage")
 	if err != nil || got != "first.last+triage@gmail.com" {

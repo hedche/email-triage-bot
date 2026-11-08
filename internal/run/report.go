@@ -24,6 +24,7 @@ type ReportItem struct {
 	From    string // display name, or the address when there is none
 	Subject string // capped at subjectMax runes
 	Why     string // the matched rule, or the Judge's reason and confidence
+	Ref     string // the Message's stable reference (triage.Message.Ref)
 }
 
 // subjectMax caps a subject in the report. The report is for recognising a
@@ -33,6 +34,7 @@ const subjectMax = 45
 // reportItem builds the report line for one decided Message.
 func reportItem(m triage.Message, d triage.Decision) ReportItem {
 	it := ReportItem{
+		Ref:     m.Ref(),
 		From:    m.From.Name,
 		Subject: truncateRunes(strings.TrimSpace(m.Subject), subjectMax),
 	}
@@ -134,7 +136,7 @@ li{padding:5px 0;border-bottom:1px solid #eee}
 			}
 			fmt.Fprintf(&b, "<details><summary>%s (%d)</summary><ul>\n", sec.title, len(items))
 			for _, it := range items {
-				fmt.Fprintf(&b, "<li><span class=\"from\">%s</span> — %s", esc(it.From), esc(it.Subject))
+				fmt.Fprintf(&b, "<li><code>%s</code> <span class=\"from\">%s</span> — %s", esc(it.Ref), esc(it.From), esc(it.Subject))
 				if it.Why != "" {
 					fmt.Fprintf(&b, "<br><span class=\"why\">%s</span>", esc(it.Why))
 				}
