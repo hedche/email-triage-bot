@@ -20,12 +20,14 @@ import (
 // MessageSummary is what a Message looked like when it was scanned. It holds
 // only what a Review or a Replay needs: never the body.
 type MessageSummary struct {
-	ID       string         `json:"id"`
-	Account  string         `json:"account"`
-	From     triage.Address `json:"from"`
-	Subject  string         `json:"subject"`
-	Snippet  string         `json:"snippet"`
-	Received time.Time      `json:"received"`
+	Ref          string         `json:"ref,omitempty"`
+	RFCMessageID string         `json:"rfc_message_id,omitempty"`
+	ID           string         `json:"id"`
+	Account      string         `json:"account"`
+	From         triage.Address `json:"from"`
+	Subject      string         `json:"subject"`
+	Snippet      string         `json:"snippet"`
+	Received     time.Time      `json:"received"`
 }
 
 // Record is one line of the Decision Log.
@@ -37,12 +39,14 @@ type Record struct {
 // Summarise reduces a scanned Message to what the Decision Log keeps.
 func Summarise(m triage.Message) MessageSummary {
 	return MessageSummary{
-		ID:       m.ID,
-		Account:  m.Account,
-		From:     m.From,
-		Subject:  m.Subject,
-		Snippet:  m.Snippet,
-		Received: m.Received,
+		Ref:          m.Ref(),
+		RFCMessageID: m.RFCMessageID,
+		ID:           m.ID,
+		Account:      m.Account,
+		From:         m.From,
+		Subject:      m.Subject,
+		Snippet:      m.Snippet,
+		Received:     m.Received,
 	}
 }
 

@@ -132,6 +132,16 @@ _Avoid_: pending change, request
 The component that turns an Email Command's note into proposed Changes. It never sees a forwarded Message's body, and every Change it proposes must be grounded in the note or the forwarded sender and subject.
 _Avoid_: parser, assistant, Judge
 
+### Archive
+
+**Ref**:
+A Message's stable short reference: 12 hex characters of a SHA-256 over its Account and Message-ID. The same in every run and report, and reveals nothing about the Message.
+_Avoid_: checksum, hash, message key
+
+**Archive**:
+The durable record of Triage Runs and Email Command events, kept in a bucket on the cluster. Nothing reads it to make a Decision.
+_Avoid_: backup, history store
+
 ### Tuning
 
 **Decision Log**:

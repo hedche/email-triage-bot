@@ -5,12 +5,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/hedche/email-triage-bot/internal/archive"
 	"github.com/hedche/email-triage-bot/internal/mail"
 	"github.com/hedche/email-triage-bot/internal/triage"
 	"gopkg.in/yaml.v3"
@@ -23,6 +25,7 @@ type Runner struct {
 	Sources     []mail.CommandSource
 	Interpreter Interpreter
 	Messenger   Messenger
+	Archive     archive.Store // nil when no archive bucket is configured
 	Log         *slog.Logger
 
 	// PollTimeout is how long a pass that does not read mail waits for a tap
@@ -52,6 +55,40 @@ type after struct {
 	edits   map[int64]string
 	answers map[string]string
 	handled map[int]map[string]bool // source index -> message ids to label
+	events  []Event
+}
+
+// Event is one archived thing that happened to an Email Command or Proposal.
+type Event struct {
+	At          time.Time       `json:"at"`
+	Type        string          `json:"type"` // applied, proposed, tapped_apply, tapped_discard, expired, ignored
+	Account     string          `json:"account,omitempty"`
+	MessageID   string          `json:"message_id,omitempty"`
+	ProposalID  string          `json:"proposal_id,omitempty"`
+	Instruction string          `json:"instruction,omitempty"`
+	From        string          `json:"from,omitempty"`
+	Add         []triage.Change `json:"add,omitempty"`
+	Remove      []string        `json:"remove,omitempty"`
+}
+
+func (r *Runner) event(post *after, e Event) {
+	e.At = r.Now().UTC()
+	post.events = append(post.events, e)
+}
+
+// archiveEvents stores this pass's events. Best-effort, like every archive
+// write, and only after the Overlay is saved so it records what really happened.
+func (r *Runner) archiveEvents(ctx context.Context, events []Event) {
+	if r.Archive == nil || len(events) == 0 {
+		return
+	}
+	body, err := json.Marshal(events)
+	if err == nil {
+		err = r.Archive.Put(ctx, archive.CommandsKey(r.Now(), r.NewID()), body, "application/json")
+	}
+	if err != nil {
+		r.Log.Error("archiving email command events failed", "events", len(events), "error", err.Error())
+	}
 }
 
 // Run does one full pass: taps, then every Account's mailbox.
@@ -103,6 +140,7 @@ func (r *Runner) RunOnce(ctx context.Context, readMail bool) (Report, error) {
 		}
 	}
 
+	r.archiveEvents(ctx, post.events)
 	for id, text := range post.answers {
 		r.warn(r.Messenger.Answer(ctx, id, text), "answering a tap")
 	}
@@ -162,10 +200,12 @@ func (r *Runner) handleTaps(ctx context.Context, st *State, wait time.Duration, 
 		text := describe(p, st)
 		switch action {
 		case "apply":
+			r.event(post, Event{Type: "tapped_apply", Account: p.Account, ProposalID: p.ID, Instruction: p.Instruction, Add: p.Add, Remove: p.Remove})
 			rep.Applied += r.apply(st, p.Add, p.Remove)
 			post.answers[tap.ID] = "Applied."
 			post.edits[tap.MessageID] = "✅ <b>Applied</b>\n" + text
 		default:
+			r.event(post, Event{Type: "tapped_discard", Account: p.Account, ProposalID: p.ID, Instruction: p.Instruction, Add: p.Add, Remove: p.Remove})
 			post.answers[tap.ID] = "Discarded."
 			post.edits[tap.MessageID] = "🗑 <b>Discarded</b>\n" + text
 		}
@@ -178,6 +218,7 @@ func (r *Runner) expire(st *State, post *after) {
 	kept := st.Pending[:0:0]
 	for _, p := range st.Pending {
 		if now.Sub(p.CreatedAt) > pendingTTL {
+			r.event(post, Event{Type: "expired", Account: p.Account, ProposalID: p.ID, Instruction: p.Instruction, Add: p.Add, Remove: p.Remove})
 			if p.TelegramMessageID != 0 {
 				post.edits[p.TelegramMessageID] = "⌛ <b>Expired</b>, nothing changed\n" + describe(p, st)
 			}
@@ -225,6 +266,7 @@ func (r *Runner) handleCommands(ctx context.Context, i int, src mail.CommandSour
 		}
 		if !Verified(m, account, plus) {
 			rep.Ignored++
+			r.event(post, Event{Type: "ignored", Account: account, MessageID: m.ID, From: m.From})
 			r.Log.Warn("ignored a message to the command address that the account did not send",
 				"account", account, "message_id", m.ID, "from", m.From, "sent", m.Sent)
 			post.notices = append(post.notices, fmt.Sprintf(
@@ -302,6 +344,7 @@ func (r *Runner) handleOne(ctx context.Context, account string, m mail.CommandMe
 	}
 	if len(now) > 0 || len(removeNow) > 0 {
 		lines := removedLines(st, removeNow)
+		r.event(post, Event{Type: "applied", Account: account, MessageID: m.ID, Instruction: shorten(instruction, 300), Add: now, Remove: removeNow})
 		rep.Applied += r.apply(st, now, removeNow)
 		b.WriteString("\n✅ <b>Applied</b>")
 		for _, c := range now {
@@ -349,6 +392,7 @@ func (r *Runner) handleOne(ctx context.Context, account string, m mail.CommandMe
 	p.TelegramMessageID = msgID
 	st.Pending = append(st.Pending, p)
 	rep.Proposed++
+	r.event(post, Event{Type: "proposed", Account: account, MessageID: m.ID, ProposalID: p.ID, Instruction: p.Instruction, Add: p.Add, Remove: p.Remove})
 }
 
 // apply adds Changes (with fresh IDs) and removes the named ones. It returns

@@ -285,6 +285,16 @@ they never remove anything from it. See
 email-triage-bot commands --overlay dist/overlay.yaml   # locally, with a file instead of the Secret
 ```
 
+## Archive
+
+With a bucket configured (`BUCKET_*` and `AWS_*`, as an ObjectBucketClaim
+publishes them), every run's results and every email-command event are kept in
+it ([ADR 0006](docs/adr/0006-archive-results-in-a-ceph-bucket.md)). Each email
+has a **ref**, a 12-character code shown in the report and stable across runs;
+the archived record holds its `Message-ID`, and a Gmail search for
+`rfc822msgid:<id>` opens it. Decompressed, a run file is a Decision Log, so
+`replay` works on it.
+
 ## Telemetry
 
 One structured log record per scanned message, at INFO:

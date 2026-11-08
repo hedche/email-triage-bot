@@ -15,6 +15,7 @@ internal/mail/             Provider interface;  internal/mail/gmail/  Gmail impl
 internal/judge/            Judge interface;     internal/judge/gemini/  internal/judge/openai/
 internal/run/              the Triage Run orchestrator (per-account loop, batching, actions, summary)
 internal/notify/           Telegram summary (optional)
+internal/archive/          archive of runs and command events in an S3-compatible bucket (ADR 0006)
 internal/command/          Email Commands: plus-address commands -> Overlay Changes (ADR 0005)
 examples/                  rules.example.yaml, accounts.example.yaml
 .claude/skills/triage-tune Claude skill for reviewing decisions and tuning rules
@@ -48,6 +49,8 @@ examples/                  rules.example.yaml, accounts.example.yaml
 | `COMMAND_TAG` | `triage` | `commands` only: the plus-address tag, so commands go to `local+triage@domain` |
 | `LABEL_COMMAND` | `Triage/Command` | applied to handled Email Commands, which are also marked read |
 | `COMMANDS_TELEGRAM_BOT_TOKEN` | `TELEGRAM_BOT_TOKEN` | `commands` only; must be a bot with no webhook, because taps are read with getUpdates |
+| `BUCKET_NAME` / `BUCKET_HOST` / `BUCKET_PORT` / `BUCKET_REGION` | | archive bucket, as published by an ObjectBucketClaim; unset disables the archive |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | | archive bucket credentials, from the same claim |
 | `HEALTHCHECK_PING_URL` | | GET after a fully successful run; empty disables |
 | `DECISIONS_OUT` | | path for the Decision Log; `run --decisions-out` overrides |
 | `LOG_FORMAT` | `json` | `json` or `text` |

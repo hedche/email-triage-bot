@@ -34,15 +34,16 @@ func (p *Provider) convert(msg *gmailapi.Message, bodyMax int) *triage.Message {
 	plain, htmlBody := bodies(msg.Payload)
 
 	return &triage.Message{
-		ID:       msg.Id,
-		ThreadID: msg.ThreadId,
-		Account:  p.account,
-		From:     parseFrom(hdr.get("From")),
-		Subject:  hdr.get("Subject"),
-		Snippet:  html.UnescapeString(msg.Snippet),
-		Body:     textclean.Strip(plain, htmlBody, bodyMax),
-		Received: received(hdr.get("Date"), msg.InternalDate),
-		Labels:   msg.LabelIds,
+		ID:           msg.Id,
+		ThreadID:     msg.ThreadId,
+		Account:      p.account,
+		RFCMessageID: strings.TrimSpace(hdr.get("Message-ID")),
+		From:         parseFrom(hdr.get("From")),
+		Subject:      hdr.get("Subject"),
+		Snippet:      html.UnescapeString(msg.Snippet),
+		Body:         textclean.Strip(plain, htmlBody, bodyMax),
+		Received:     received(hdr.get("Date"), msg.InternalDate),
+		Labels:       msg.LabelIds,
 	}
 }
 
