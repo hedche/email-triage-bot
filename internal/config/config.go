@@ -79,6 +79,17 @@ var lookupEnv func(string) string = os.Getenv
 // defaults and validating the combinations that cannot work.
 func Load() (*Settings, error) { return LoadFrom(lookupEnv) }
 
+// LoadForArchive reads Settings for a command that only touches the archive
+// bucket, so it needs none of the Judge's settings to be present.
+func LoadForArchive() (*Settings, error) {
+	return LoadFrom(func(key string) string {
+		if key == "JUDGE_PROVIDER" {
+			return JudgeNone
+		}
+		return lookupEnv(key)
+	})
+}
+
 // LoadFrom reads Settings from an arbitrary lookup, for tests and callers that
 // hold their own environment.
 func LoadFrom(lookup func(string) string) (*Settings, error) {

@@ -142,6 +142,24 @@ _Avoid_: checksum, hash, message key
 The durable record of Triage Runs and Email Command events, kept in a bucket on the cluster. Nothing reads it to make a Decision.
 _Avoid_: backup, history store
 
+### Archive
+
+**Archive**:
+The permanent record of every Triage Run's Decisions and every Email Command event, kept in a bucket. No Triage Run reads it.
+_Avoid_: backup, history, store
+
+**Ref**:
+A Message's short, stable reference: 12 hex characters derived from its Account and Message-ID, the same in every Triage Run.
+_Avoid_: id, hash, handle
+
+**Backfilled Record**:
+An Archive record rebuilt afterwards from logs rather than written by its Triage Run. It may have no Ref, Message-ID or snippet, and it always says so.
+_Avoid_: imported record, legacy record
+
+**Search**:
+Looking up Archive records by Ref, sender, subject, Account, Verdict, Tier, Rule or date. Search only reads the Archive and never contacts the Provider, the Judge or Telegram.
+_Avoid_: query, lookup, audit
+
 ### Tuning
 
 **Decision Log**:

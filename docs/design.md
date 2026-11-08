@@ -6,7 +6,7 @@ owns the vocabulary; docs/adr/ owns the why. This owns the shapes.
 ## Module layout
 
 ```
-cmd/email-triage-bot/      CLI: run | commands | listen | auth | replay | backfill | version
+cmd/email-triage-bot/      CLI: run | commands | listen | auth | replay | backfill | search | version
 internal/triage/           domain types (types.go) + rules engine (engine.go) + rules loading (rules.go)
 internal/config/           Settings from env; accounts file loading
 internal/textclean/        HTML/plain-text stripping and capping for message bodies
@@ -16,6 +16,7 @@ internal/judge/            Judge interface;     internal/judge/gemini/  internal
 internal/run/              the Triage Run orchestrator (per-account loop, batching, actions, summary)
 internal/notify/           Telegram summary (optional)
 internal/archive/          archive of runs and command events in an S3-compatible bucket (ADR 0006)
+internal/search/           read-only search over the archive: filters, date window, table and JSON output
 internal/command/          Email Commands: plus-address commands -> Overlay Changes (ADR 0005)
 examples/                  rules.example.yaml, accounts.example.yaml
 .claude/skills/triage-tune Claude skill for reviewing decisions and tuning rules
@@ -171,6 +172,8 @@ what is new since the last one.
 email-triage-bot run     [--dry-run[=false]] [--account EMAIL] [--decisions-out PATH]
 email-triage-bot auth    [--email EMAIL]           # local OAuth consent flow; prints refresh token
 email-triage-bot replay  --decisions PATH --rules PATH [--account EMAIL]   # offline: no provider, no judge
+email-triage-bot search  [--ref REF] [--from X] [--subject X] [--account X] [--verdict X] [--tier X] [--rule X]
+                         [--since DAY] [--until DAY] [--limit N] [--json] [--commands]   # read-only: archive bucket only
 email-triage-bot version
 ```
 
@@ -178,6 +181,34 @@ email-triage-bot version
 saved messages and prints, per message whose Verdict or Tier would change,
 the before and after. Messages that would now be Candidates are reported as
 "needs judge" rather than given a Verdict.
+
+`search` reads the archive and nothing else: it is handed an `archive.Reader`,
+which has only `Get` and `List`, and it builds no Provider, Judge or Notifier. It
+needs only the `BUCKET_*` and `AWS_*` settings.
+
+- **Window.** `--since` and `--until` are whole UTC days, both included, compared
+  with the date of the run or event (the date in the object's key), not when the
+  mail arrived. The default is the 30 days before `--until`, which defaults to
+  today. Only the day prefixes inside the window are listed.
+- **Filters.** All combine. `--from` takes an address or a domain, which includes
+  its subdomains. `--subject` and `--rule` are case-insensitive substrings; `--rule`
+  also matches a Brand. An empty value is an error, not "no filter".
+- **Order.** Newest run first, limited by `--limit`, default 50. The date shown is
+  the run's, because Backfilled Records have no received time.
+- **`--ref`** prints the newest matching record in full, every other run in the
+  window that saw that email (`--limit` does not apply) and the Gmail search
+  string. The other filters choose the record; they never hide the other runs.
+- **`--json`** prints one object per line: the archived record plus `key`,
+  `run_time` and `notes`, and with `--ref` also `role` and `gmail`.
+- **`--commands`** searches the Email Command events. `--account` matches the
+  event; `--from` the sender of an ignored event or an address or domain a Change
+  names; `--subject` the note or a subject a Change names; `--rule` a Change as
+  `op:value`, or its Brand. `--ref`, `--verdict` and `--tier` are rejected.
+- **Notes.** Every result carries the flags that limit what it can be trusted
+  for: `backfilled`, `no ref`, `no snippet` (backfilled only), `dry run`.
+- **Failures.** A listing or fetch error stops the search. An object that cannot
+  be decoded is skipped and reported, as a `WARNING` line or a `{"warning"}` JSON
+  line, and the command exits 1 because the answer is incomplete.
 
 ## Constructor signatures (so cmd/ can be written before packages land)
 
