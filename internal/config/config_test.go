@@ -250,3 +250,18 @@ func requireErr(t *testing.T, err error, want string) {
 		t.Fatalf("error %q does not contain %q", err.Error(), want)
 	}
 }
+
+func TestLoadForArchiveNeedsNoJudgeSettings(t *testing.T) {
+	saved := lookupEnv
+	defer func() { lookupEnv = saved }()
+	lookupEnv = func(key string) string {
+		return map[string]string{"BUCKET_NAME": "b", "AWS_ACCESS_KEY_ID": "AK"}[key]
+	}
+	s, err := LoadForArchive()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ArchiveBucket != "b" || s.ArchiveAccessKey != "AK" {
+		t.Errorf("settings %+v", s)
+	}
+}

@@ -295,6 +295,32 @@ the archived record holds its `Message-ID`, and a Gmail search for
 `rfc822msgid:<id>` opens it. Decompressed, a run file is a Decision Log, so
 `replay` works on it.
 
+### Searching the archive
+
+`email-triage-bot search` looks through the archive and changes nothing: it never
+touches Gmail, the AI judge or Telegram.
+
+The bucket is only reachable inside the cluster, so `scripts/search.sh` runs the
+command once in a throwaway pod, using the image the bot is deployed with, and
+removes it afterwards. The credentials stay in the cluster. It needs `kubectl`
+pointed at the cluster, and `jq`.
+
+```bash
+scripts/search.sh --from example.com --since 2026-11-01   # an address or a domain
+scripts/search.sh --subject "your order" --verdict leave
+scripts/search.sh --ref 0123456789ab                      # the full record, other runs, Gmail search string
+scripts/search.sh --commands --account you@example.com    # email-command events instead of runs
+scripts/search.sh --tier brand --limit 10 --json          # JSON lines
+```
+
+Filters combine: `--ref`, `--from`, `--subject`, `--account`, `--verdict`, `--tier`,
+`--rule`, `--since`, `--until`. Dates are `YYYY-MM-DD` run dates in UTC, and a
+search covers the last 30 days unless told otherwise. Results are newest first,
+50 at most unless you pass `--limit`. Records rebuilt from logs are marked
+`backfilled` in the notes column, and also `no ref` or `no snippet` when those
+could not be recovered; a record with no ref cannot be found with `--ref`, so
+search by sender or subject.
+
 ## Telemetry
 
 One structured log record per scanned message, at INFO:

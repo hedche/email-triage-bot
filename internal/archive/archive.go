@@ -12,10 +12,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -31,6 +33,15 @@ type ReadStore interface {
 	Store
 	// Get returns an object's bytes, or ErrNotFound when the key is empty.
 	Get(ctx context.Context, key string) ([]byte, error)
+}
+
+// Reader finds and fetches objects and can do nothing else: what `search` is
+// given, so that command has no path to a write.
+type Reader interface {
+	// Get returns an object's bytes, or ErrNotFound when the key is empty.
+	Get(ctx context.Context, key string) ([]byte, error)
+	// List returns every key under prefix, following pagination.
+	List(ctx context.Context, prefix string) ([]string, error)
 }
 
 // ErrNotFound is what Get returns for a key that holds no object.
@@ -49,7 +60,8 @@ type Config struct {
 }
 
 // S3 is a Store for one bucket, using path-style URLs and Signature V4. It
-// does only single-object PUTs, which is why it is this small and not an SDK.
+// does only single-object PUTs and GETs and one listing call, which is why it
+// is this small and not an SDK.
 type S3 struct {
 	cfg    Config
 	client *http.Client
@@ -65,6 +77,24 @@ func New(cfg Config) Store {
 		cfg.Region = "us-east-1"
 	}
 	return &S3{cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}, now: time.Now}
+}
+
+// NewReader returns a read-only view of the bucket cfg names, or nil when no
+// bucket is configured. The value has no Put, even by type assertion.
+func NewReader(cfg Config) Reader {
+	s, ok := New(cfg).(*S3)
+	if !ok {
+		return nil
+	}
+	return readOnly{s}
+}
+
+type readOnly struct{ s *S3 }
+
+func (r readOnly) Get(ctx context.Context, key string) ([]byte, error) { return r.s.Get(ctx, key) }
+
+func (r readOnly) List(ctx context.Context, prefix string) ([]string, error) {
+	return r.s.List(ctx, prefix)
 }
 
 func (s *S3) endpoint() (scheme, host string) {
@@ -130,8 +160,73 @@ func (s *S3) Get(ctx context.Context, key string) ([]byte, error) {
 	return body, nil
 }
 
-// sign adds the AWS Signature V4 headers for a request with no query string.
-// contentType is empty for a GET, which has no body to describe.
+// listPage is the part of a ListObjectsV2 response the bot reads.
+type listPage struct {
+	Contents []struct {
+		Key string `xml:"Key"`
+	} `xml:"Contents"`
+	IsTruncated           bool   `xml:"IsTruncated"`
+	NextContinuationToken string `xml:"NextContinuationToken"`
+}
+
+// List returns every key under prefix, one ListObjectsV2 page at a time.
+func (s *S3) List(ctx context.Context, prefix string) ([]string, error) {
+	var keys []string
+	token := ""
+	for {
+		page, err := s.listOnce(ctx, prefix, token)
+		if err != nil {
+			return nil, fmt.Errorf("archive list %s: %w", prefix, err)
+		}
+		for _, c := range page.Contents {
+			keys = append(keys, c.Key)
+		}
+		if !page.IsTruncated {
+			return keys, nil
+		}
+		if page.NextContinuationToken == "" || page.NextContinuationToken == token {
+			return nil, fmt.Errorf("archive list %s: truncated page with no new continuation token", prefix)
+		}
+		token = page.NextContinuationToken
+	}
+}
+
+func (s *S3) listOnce(ctx context.Context, prefix, token string) (*listPage, error) {
+	q := url.Values{"list-type": {"2"}, "prefix": {prefix}}
+	if token != "" {
+		q.Set("continuation-token", token)
+	}
+	// Encode sorts by key, as the canonical request needs, and leaves only
+	// spaces as '+', which Signature V4 wants as %20.
+	query := strings.ReplaceAll(q.Encode(), "+", "%20")
+
+	scheme, host := s.endpoint()
+	path := "/" + s.cfg.Bucket
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scheme+"://"+host+path+"?"+query, nil)
+	if err != nil {
+		return nil, err
+	}
+	s.sign(req, host, path, nil, "")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	var page listPage
+	if err := xml.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return nil, fmt.Errorf("decode listing: %w", err)
+	}
+	return &page, nil
+}
+
+// sign adds the AWS Signature V4 headers. The request's RawQuery must already
+// be in canonical form: sorted, with spaces as %20. contentType is empty for a
+// GET, which has no body to describe.
 func (s *S3) sign(req *http.Request, host, path string, body []byte, contentType string) {
 	now := s.now().UTC()
 	amzDate, day := now.Format("20060102T150405Z"), now.Format("20060102")
@@ -153,7 +248,7 @@ func (s *S3) sign(req *http.Request, host, path string, body []byte, contentType
 		signedHeaders = "content-type;" + signedHeaders
 		headerLines = append([]string{"content-type:" + contentType}, headerLines...)
 	}
-	canonical := strings.Join(append(append([]string{req.Method, path, ""}, headerLines...), "", signedHeaders, payload), "\n")
+	canonical := strings.Join(append(append([]string{req.Method, path, req.URL.RawQuery}, headerLines...), "", signedHeaders, payload), "\n")
 	scope := day + "/" + s.cfg.Region + "/s3/aws4_request"
 	toSign := strings.Join([]string{"AWS4-HMAC-SHA256", amzDate, scope, sha256Hex([]byte(canonical))}, "\n")
 
