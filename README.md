@@ -266,7 +266,8 @@ Forward a message to your own address with `+triage` added
 (`someone+triage@gmail.com`), from the mailbox it arrived in, and write what you
 want above it: "stop showing me these", "never hide anything from this
 company", "undo the newsletter rule". The `commands` subcommand, which the
-cluster runs every 15 minutes, turns the note into rule changes:
+cluster runs continuously (`listen`), turns the note into rule changes within
+about a minute; Apply and Discard taps are answered at once:
 
 - Protect rules apply straight away and are reported in Telegram.
 - Anything that could mark mail read is sent to Telegram with **Apply** and

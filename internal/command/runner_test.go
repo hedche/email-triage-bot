@@ -85,7 +85,7 @@ func (f *fakeMessenger) Edit(_ context.Context, id int64, text string) error {
 	return nil
 }
 func (f *fakeMessenger) Answer(context.Context, string, string) error { return nil }
-func (f *fakeMessenger) Callbacks(_ context.Context, offset int64) ([]Callback, int64, error) {
+func (f *fakeMessenger) Callbacks(_ context.Context, offset int64, _ time.Duration) ([]Callback, int64, error) {
 	taps := f.taps
 	f.taps = nil
 	return taps, offset + int64(len(taps)), nil
@@ -227,6 +227,32 @@ func TestRunExpiresOldProposals(t *testing.T) {
 	}
 	if len(store.st.Pending) != 0 || !strings.Contains(msgr.edits[9], "Expired") {
 		t.Errorf("pending %+v, edits %v", store.st.Pending, msgr.edits)
+	}
+}
+
+func TestRunOnceWithoutMailOnlyHandlesTapsAndSavesOnlyOnChange(t *testing.T) {
+	store := &memStore{st: &State{Pending: []Proposal{{
+		ID: "p1", CreatedAt: time.Date(2026, 11, 5, 8, 0, 0, 0, time.UTC),
+		Add: []triage.Change{{Op: triage.OpReadDomain, Value: "news.example"}},
+	}}}}
+	src := &fakeSource{account: "me@example.com", msgs: []mail.CommandMessage{command("m1", true, "me@example.com")}}
+	msgr := &fakeMessenger{}
+	r := newRunner(store, src, msgr, Raw{Changes: []RawChange{{Op: "protect_keyword", Value: "the boss"}}})
+
+	if _, err := r.RunOnce(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if store.saves != 0 || len(src.read) != 0 {
+		t.Errorf("an idle listen pass saved %d times and read %v", store.saves, src.read)
+	}
+
+	msgr.taps = []Callback{{ID: "c1", ChatID: 42, MessageID: 7, Data: "apply:p1"}}
+	rep, err := r.RunOnce(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Applied != 1 || store.saves != 1 || len(store.st.Changes) != 1 || len(src.read) != 0 {
+		t.Errorf("tap pass: %+v saves=%d changes=%+v read=%v", rep, store.saves, store.st.Changes, src.read)
 	}
 }
 

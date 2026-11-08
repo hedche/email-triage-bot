@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/hedche/email-triage-bot/internal/mail"
 	"github.com/hedche/email-triage-bot/internal/triage"
+	"gopkg.in/yaml.v3"
 )
 
 // Runner handles one pass of Email Commands: it collects Apply/Discard taps,
@@ -22,6 +24,10 @@ type Runner struct {
 	Interpreter Interpreter
 	Messenger   Messenger
 	Log         *slog.Logger
+
+	// PollTimeout is how long a pass that does not read mail waits for a tap
+	// (Telegram long polling). Zero means do not wait.
+	PollTimeout time.Duration
 
 	Tag          string // plus-address tag, e.g. "triage" for someone+triage@gmail.com
 	Label        string // applied to handled commands, e.g. "Triage/Command"
@@ -48,29 +54,53 @@ type after struct {
 	handled map[int]map[string]bool // source index -> message ids to label
 }
 
-// Run does one pass. A failure to save the Overlay fails the pass and nothing
-// after it (notices, labels) happens; the commands are read again next time.
-func (r *Runner) Run(ctx context.Context) (Report, error) {
+// Run does one full pass: taps, then every Account's mailbox.
+func (r *Runner) Run(ctx context.Context) (Report, error) { return r.RunOnce(ctx, true) }
+
+// RunOnce does one pass. Without readMail it only collects taps, waiting up to
+// PollTimeout for one, which is what makes a tap feel instant in listen mode.
+// A failure to save the Overlay fails the pass and nothing after it (answers,
+// notices, labels) happens. Telegram treats updates as delivered only once a
+// later getUpdates passes a higher offset, and that offset is saved with the
+// rest of the State, so an unsaved tap is simply delivered again.
+func (r *Runner) RunOnce(ctx context.Context, readMail bool) (Report, error) {
 	r.defaults()
 	var rep Report
 	st, version, err := r.Store.Load(ctx)
 	if err != nil {
 		return rep, err
 	}
+	before, err := yaml.Marshal(st)
+	if err != nil {
+		return rep, err
+	}
 	post := &after{edits: map[int64]string{}, answers: map[string]string{}, handled: map[int]map[string]bool{}}
 
-	if err := r.handleTaps(ctx, st, post, &rep); err != nil {
+	wait := r.PollTimeout
+	if readMail {
+		wait = 0
+	}
+	if err := r.handleTaps(ctx, st, wait, post, &rep); err != nil {
 		return rep, err
 	}
 	r.expire(st, post)
-	for i, src := range r.Sources {
-		if err := r.handleCommands(ctx, i, src, st, post, &rep); err != nil {
-			return rep, fmt.Errorf("account %s: %w", src.Account(), err)
+	if readMail {
+		for i, src := range r.Sources {
+			if err := r.handleCommands(ctx, i, src, st, post, &rep); err != nil {
+				return rep, fmt.Errorf("account %s: %w", src.Account(), err)
+			}
 		}
 	}
 
-	if err := r.Store.Save(ctx, st, version); err != nil {
-		return rep, fmt.Errorf("save overlay: %w", err)
+	// Most listen passes change nothing; do not rewrite the Secret for them.
+	after, err := yaml.Marshal(st)
+	if err != nil {
+		return rep, err
+	}
+	if !bytes.Equal(before, after) {
+		if err := r.Store.Save(ctx, st, version); err != nil {
+			return rep, fmt.Errorf("save overlay: %w", err)
+		}
 	}
 
 	for id, text := range post.answers {
@@ -110,8 +140,8 @@ func (r *Runner) defaults() {
 	}
 }
 
-func (r *Runner) handleTaps(ctx context.Context, st *State, post *after, rep *Report) error {
-	taps, next, err := r.Messenger.Callbacks(ctx, st.TelegramOffset)
+func (r *Runner) handleTaps(ctx context.Context, st *State, wait time.Duration, post *after, rep *Report) error {
+	taps, next, err := r.Messenger.Callbacks(ctx, st.TelegramOffset, wait)
 	if err != nil {
 		return err
 	}

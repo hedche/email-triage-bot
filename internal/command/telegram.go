@@ -33,8 +33,9 @@ type Messenger interface {
 	Edit(ctx context.Context, messageID int64, html string) error
 	Answer(ctx context.Context, callbackID, text string) error
 	// Callbacks returns taps with update_id >= offset and the offset to pass
-	// next time, which also confirms these updates to Telegram.
-	Callbacks(ctx context.Context, offset int64) ([]Callback, int64, error)
+	// next time, which also confirms these updates to Telegram. It waits up to
+	// wait for the first one (long polling); zero returns at once.
+	Callbacks(ctx context.Context, offset int64, wait time.Duration) ([]Callback, int64, error)
 	ChatID() int64
 }
 
@@ -56,7 +57,7 @@ func NewTelegram(token, chatID string) (*Telegram, error) {
 	if token == "" {
 		return nil, fmt.Errorf("telegram bot token is required for email commands")
 	}
-	return &Telegram{token: token, chatID: id, baseURL: "https://api.telegram.org", client: &http.Client{Timeout: 15 * time.Second}}, nil
+	return &Telegram{token: token, chatID: id, baseURL: "https://api.telegram.org", client: &http.Client{}}, nil
 }
 
 func (t *Telegram) ChatID() int64 { return t.chatID }
@@ -100,7 +101,7 @@ func (t *Telegram) Answer(ctx context.Context, callbackID, text string) error {
 	return t.call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": callbackID, "text": text}, nil)
 }
 
-func (t *Telegram) Callbacks(ctx context.Context, offset int64) ([]Callback, int64, error) {
+func (t *Telegram) Callbacks(ctx context.Context, offset int64, wait time.Duration) ([]Callback, int64, error) {
 	var updates []struct {
 		UpdateID      int64 `json:"update_id"`
 		CallbackQuery *struct {
@@ -114,9 +115,9 @@ func (t *Telegram) Callbacks(ctx context.Context, offset int64) ([]Callback, int
 			} `json:"message"`
 		} `json:"callback_query"`
 	}
-	err := t.call(ctx, "getUpdates", map[string]any{
+	err := t.callWithin(ctx, wait+requestTimeout, "getUpdates", map[string]any{
 		"offset":          offset,
-		"timeout":         0,
+		"timeout":         int(wait / time.Second),
 		"allowed_updates": []string{"callback_query"},
 	}, &updates)
 	if err != nil {
@@ -137,7 +138,16 @@ func (t *Telegram) Callbacks(ctx context.Context, offset int64) ([]Callback, int
 	return out, next, nil
 }
 
+// requestTimeout bounds every Bot API call except the wait of a long poll.
+const requestTimeout = 15 * time.Second
+
 func (t *Telegram) call(ctx context.Context, method string, body any, result any) error {
+	return t.callWithin(ctx, requestTimeout, method, body, result)
+}
+
+func (t *Telegram) callWithin(ctx context.Context, limit time.Duration, method string, body any, result any) error {
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return err

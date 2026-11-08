@@ -4,19 +4,29 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/hedche/email-triage-bot/internal/command"
 	"github.com/hedche/email-triage-bot/internal/config"
 	"github.com/hedche/email-triage-bot/internal/mail"
 )
 
-// cmdCommands handles Email Commands: messages an Account owner sends to their
-// own plus-address to change the rules. See docs/adr/0005.
-func cmdCommands(args []string) int {
-	fs := flag.NewFlagSet("commands", flag.ContinueOnError)
+// cmdCommands handles Email Commands once: messages an Account owner sends to
+// their own plus-address to change the rules. See docs/adr/0005.
+func cmdCommands(args []string) int { return commandsMain("commands", args) }
+
+// cmdListen runs Email Commands continuously: Apply/Discard taps are answered
+// as they happen (Telegram long polling) and the mailboxes are read every
+// --mail-every. It is what the cluster runs; `commands` is the one-shot form.
+func cmdListen(args []string) int { return commandsMain("listen", args) }
+
+func commandsMain(name string, args []string) int {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	mailEvery := fs.Duration("mail-every", time.Minute, "listen only: how often to read the mailboxes for new commands")
 	account := fs.String("account", "", "read commands for this account only (default: every configured account)")
 	overlayPath := fs.String("overlay", "", "keep the overlay in this local file instead of the OVERLAY_SECRET Secret")
 	if err := fs.Parse(args); err != nil {
@@ -84,6 +94,10 @@ func cmdCommands(args []string) int {
 		Tag:         settings.CommandTag,
 		Label:       settings.CommandLabel,
 	}
+	if name == "listen" {
+		listen(ctx, runner, *mailEvery, log)
+		return 0
+	}
 	rep, err := runner.Run(ctx)
 	log.Info("email commands done", "commands", rep.Commands, "applied", rep.Applied,
 		"proposed", rep.Proposed, "ignored", rep.Ignored)
@@ -91,4 +105,49 @@ func cmdCommands(args []string) int {
 		return fail(err)
 	}
 	return 0
+}
+
+// longPoll is the most a listen pass waits for a tap. Telegram allows more,
+// but proxies and NAT tables are kinder to a request that ends within a minute.
+const longPoll = 50 * time.Second
+
+// listen loops until ctx is cancelled. Every pass waits for taps; a pass that
+// is due also reads the mailboxes. Errors are logged and retried after a
+// pause: nothing a pass failed to save is lost, because Telegram redelivers
+// unconfirmed taps and unseen commands are read again.
+func listen(ctx context.Context, runner *command.Runner, mailEvery time.Duration, log *slog.Logger) {
+	log.Info("listening for email commands", "mail_every", mailEvery.String())
+	nextMail := time.Now()
+	for ctx.Err() == nil {
+		readMail := !time.Now().Before(nextMail)
+		if readMail {
+			nextMail = time.Now().Add(mailEvery)
+		}
+		wait := time.Until(nextMail)
+		if wait > longPoll {
+			wait = longPoll
+		}
+		if wait < time.Second {
+			wait = time.Second
+		}
+		runner.PollTimeout = wait
+
+		rep, err := runner.RunOnce(ctx, readMail)
+		if err != nil {
+			if ctx.Err() != nil {
+				break
+			}
+			log.Error("email commands pass failed", "error", err.Error())
+			select {
+			case <-time.After(5 * time.Second):
+			case <-ctx.Done():
+			}
+			continue
+		}
+		if rep != (command.Report{}) {
+			log.Info("email commands pass", "commands", rep.Commands, "applied", rep.Applied,
+				"proposed", rep.Proposed, "ignored", rep.Ignored)
+		}
+	}
+	log.Info("stopped listening")
 }
