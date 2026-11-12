@@ -522,6 +522,24 @@ func TestRetriesServerErrorThenGivesUp(t *testing.T) {
 	}
 }
 
+func TestRetriesPerUserQuota403(t *testing.T) {
+	f := newFakeGmail(t)
+	f.failStatus = http.StatusForbidden
+	f.failReason = "rateLimitExceeded"
+	f.failures["/messages/m1"] = 2 // two quota refusals, then the real answer
+	f.messages["m1"] = &gmailapi.Message{Id: "m1", Payload: &gmailapi.MessagePart{MimeType: "text/plain", Body: &gmailapi.MessagePartBody{Data: b64("hi")}}}
+	p, _ := f.start()
+	// Only the quota delays are short, so a pass proves they were the ones used.
+	p.backoff = []time.Duration{time.Hour, time.Hour, time.Hour}
+
+	if _, err := p.Fetch(context.Background(), "m1", 100); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if f.failures["/messages/m1"] != 0 {
+		t.Errorf("%d refusals left unserved", f.failures["/messages/m1"])
+	}
+}
+
 func TestRetriesDroppedConnection(t *testing.T) {
 	f := newFakeGmail(t)
 	f.drops["/messages/batchModify"] = 1 // the connection dies, then the real answer
@@ -547,6 +565,9 @@ func TestRetryable(t *testing.T) {
 		{"rate limited", &googleapi.Error{Code: http.StatusTooManyRequests}, true},
 		{"server fault", &googleapi.Error{Code: http.StatusBadGateway}, true},
 		{"not found", &googleapi.Error{Code: http.StatusNotFound}, false},
+		{"per-user quota", &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "rateLimitExceeded"}}}, true},
+		{"user rate limit", &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "userRateLimitExceeded"}}}, true},
+		{"forbidden", &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "insufficientPermissions"}}}, false},
 		{"connection reset", &url.Error{Op: "Post", URL: "https://example.com", Err: syscall.ECONNRESET}, true},
 		{"refresh token refused", tokenErr(http.StatusBadRequest), false},
 		{"token endpoint down", tokenErr(http.StatusServiceUnavailable), true},
@@ -585,6 +606,7 @@ func TestCancelledContextStopsRetrying(t *testing.T) {
 	f.failures["/messages"] = 10
 	p, _ := f.start()
 	p.backoff = []time.Duration{time.Hour, time.Hour, time.Hour}
+	p.quotaBackoff = []time.Duration{time.Hour, time.Hour, time.Hour}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
