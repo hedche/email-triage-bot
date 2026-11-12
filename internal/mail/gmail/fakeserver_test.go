@@ -33,6 +33,9 @@ type fakeGmail struct {
 	// the handler answers normally.
 	failures   map[string]int
 	failStatus int
+	// drops[path] is a countdown of requests to answer by closing the
+	// connection without a response, the way a reset or a dead link looks.
+	drops map[string]int
 
 	// recorded traffic
 	listQueries  []string
@@ -49,6 +52,7 @@ func newFakeGmail(t *testing.T) *fakeGmail {
 		t:           t,
 		messages:    map[string]*gmailapi.Message{},
 		failures:    map[string]int{},
+		drops:       map[string]int{},
 		failStatus:  http.StatusTooManyRequests,
 		getFormats:  map[string]string{},
 		nextLabelID: 1,
@@ -74,6 +78,15 @@ func (f *fakeGmail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 
 	path := strings.TrimPrefix(r.URL.Path, "/gmail/v1/users/me")
+	if n := f.drops[path]; n > 0 {
+		f.drops[path] = n - 1
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			f.t.Fatalf("fake gmail: hijack: %v", err)
+		}
+		conn.Close()
+		return
+	}
 	if n := f.failures[path]; n > 0 {
 		f.failures[path] = n - 1
 		http.Error(w, `{"error":{"code":`+strconv.Itoa(f.failStatus)+`,"message":"injected"}}`, f.failStatus)

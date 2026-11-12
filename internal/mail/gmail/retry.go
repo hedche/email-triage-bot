@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"time"
 
+	"golang.org/x/oauth2"
 	"google.golang.org/api/googleapi"
 )
 
@@ -76,14 +78,27 @@ func (p *Provider) do(ctx context.Context, op, msgID string, call func() error) 
 	}
 }
 
-// retryable reports whether the Gmail API said "try again": rate limiting or a
-// server-side fault. Everything else (bad token, bad label, 404) is permanent.
+// retryable reports whether a failed call is worth another go: the Gmail API
+// said "try again" (rate limiting or a server-side fault), or the request never
+// got an answer at all (a timeout, a reset connection, a DNS blip). Everything
+// the server or the token endpoint actually answered (bad token, bad label,
+// 404) is permanent.
 func retryable(err error) bool {
 	var gerr *googleapi.Error
-	if !errors.As(err, &gerr) {
+	if errors.As(err, &gerr) {
+		return gerr.Code == http.StatusTooManyRequests || (gerr.Code >= 500 && gerr.Code <= 599)
+	}
+	// The token exchange runs inside the same request, so a refused refresh
+	// token arrives as a *url.Error too. Only a server fault there is transient.
+	var rerr *oauth2.RetrieveError
+	if errors.As(err, &rerr) {
+		return rerr.Response != nil && rerr.Response.StatusCode >= 500
+	}
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
-	return gerr.Code == http.StatusTooManyRequests || (gerr.Code >= 500 && gerr.Code <= 599)
+	var uerr *url.Error
+	return errors.As(err, &uerr)
 }
 
 // jitter spreads retries over +/-20% so a run against several accounts does not
