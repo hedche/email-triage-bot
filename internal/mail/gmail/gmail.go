@@ -48,6 +48,8 @@ type Provider struct {
 	// backoff holds the retry delays; it is a field only so tests can shorten
 	// them. Production value is defaultBackoff.
 	backoff []time.Duration
+	// quotaBackoff replaces backoff once Gmail says a rate limit was hit.
+	quotaBackoff []time.Duration
 
 	mu sync.Mutex
 	// labelIDs caches the mailbox's label name -> ID map. Label sets are small
@@ -99,7 +101,7 @@ func newForTest(account, baseURL string, hc *http.Client) (*Provider, error) {
 }
 
 func newProvider(svc *gmailapi.Service, account string) *Provider {
-	return &Provider{svc: svc, account: account, backoff: defaultBackoff}
+	return &Provider{svc: svc, account: account, backoff: defaultBackoff, quotaBackoff: defaultQuotaBackoff}
 }
 
 // oauthConfig is the one place the Google OAuth endpoints and scope are named.

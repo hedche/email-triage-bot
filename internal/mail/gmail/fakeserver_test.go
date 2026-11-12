@@ -33,6 +33,12 @@ type fakeGmail struct {
 	// the handler answers normally.
 	failures   map[string]int
 	failStatus int
+	// failReason, when set, goes into the error's errors[].reason, the way
+	// Gmail marks a 403 as a rate limit rather than a refusal.
+	failReason string
+	// drops[path] is a countdown of requests to answer by closing the
+	// connection without a response, the way a reset or a dead link looks.
+	drops map[string]int
 
 	// recorded traffic
 	listQueries  []string
@@ -49,6 +55,7 @@ func newFakeGmail(t *testing.T) *fakeGmail {
 		t:           t,
 		messages:    map[string]*gmailapi.Message{},
 		failures:    map[string]int{},
+		drops:       map[string]int{},
 		failStatus:  http.StatusTooManyRequests,
 		getFormats:  map[string]string{},
 		nextLabelID: 1,
@@ -66,6 +73,7 @@ func (f *fakeGmail) start() (*Provider, *httptest.Server) {
 		f.t.Fatalf("newForTest: %v", err)
 	}
 	p.backoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
+	p.quotaBackoff = []time.Duration{time.Millisecond, time.Millisecond, time.Millisecond}
 	return p, srv
 }
 
@@ -74,9 +82,22 @@ func (f *fakeGmail) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 
 	path := strings.TrimPrefix(r.URL.Path, "/gmail/v1/users/me")
+	if n := f.drops[path]; n > 0 {
+		f.drops[path] = n - 1
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			f.t.Fatalf("fake gmail: hijack: %v", err)
+		}
+		conn.Close()
+		return
+	}
 	if n := f.failures[path]; n > 0 {
 		f.failures[path] = n - 1
-		http.Error(w, `{"error":{"code":`+strconv.Itoa(f.failStatus)+`,"message":"injected"}}`, f.failStatus)
+		errs := ""
+		if f.failReason != "" {
+			errs = `,"errors":[{"reason":"` + f.failReason + `"}]`
+		}
+		http.Error(w, `{"error":{"code":`+strconv.Itoa(f.failStatus)+`,"message":"injected"`+errs+`}}`, f.failStatus)
 		return
 	}
 

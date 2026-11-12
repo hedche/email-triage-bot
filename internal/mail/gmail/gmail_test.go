@@ -3,15 +3,20 @@ package gmail
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/hedche/email-triage-bot/internal/mail"
+	"golang.org/x/oauth2"
 	gmailapi "google.golang.org/api/gmail/v1"
+	"google.golang.org/api/googleapi"
 )
 
 func b64(s string) string { return base64.URLEncoding.EncodeToString([]byte(s)) }
@@ -517,6 +522,67 @@ func TestRetriesServerErrorThenGivesUp(t *testing.T) {
 	}
 }
 
+func TestRetriesPerUserQuota403(t *testing.T) {
+	f := newFakeGmail(t)
+	f.failStatus = http.StatusForbidden
+	f.failReason = "rateLimitExceeded"
+	f.failures["/messages/m1"] = 2 // two quota refusals, then the real answer
+	f.messages["m1"] = &gmailapi.Message{Id: "m1", Payload: &gmailapi.MessagePart{MimeType: "text/plain", Body: &gmailapi.MessagePartBody{Data: b64("hi")}}}
+	p, _ := f.start()
+	// Only the quota delays are short, so a pass proves they were the ones used.
+	p.backoff = []time.Duration{time.Hour, time.Hour, time.Hour}
+
+	if _, err := p.Fetch(context.Background(), "m1", 100); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if f.failures["/messages/m1"] != 0 {
+		t.Errorf("%d refusals left unserved", f.failures["/messages/m1"])
+	}
+}
+
+func TestRetriesDroppedConnection(t *testing.T) {
+	f := newFakeGmail(t)
+	f.drops["/messages/batchModify"] = 1 // the connection dies, then the real answer
+	p, _ := f.start()
+
+	if err := p.MarkRead(context.Background(), []string{"a", "b"}, "Label_read"); err != nil {
+		t.Fatalf("MarkRead: %v", err)
+	}
+	if len(f.batchModify) != 1 {
+		t.Errorf("got %d successful batchModify calls, want 1", len(f.batchModify))
+	}
+}
+
+func TestRetryable(t *testing.T) {
+	tokenErr := func(code int) error {
+		return &url.Error{Op: "Get", URL: "https://example.com", Err: &oauth2.RetrieveError{Response: &http.Response{StatusCode: code}}}
+	}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"rate limited", &googleapi.Error{Code: http.StatusTooManyRequests}, true},
+		{"server fault", &googleapi.Error{Code: http.StatusBadGateway}, true},
+		{"not found", &googleapi.Error{Code: http.StatusNotFound}, false},
+		{"per-user quota", &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "rateLimitExceeded"}}}, true},
+		{"user rate limit", &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "userRateLimitExceeded"}}}, true},
+		{"forbidden", &googleapi.Error{Code: http.StatusForbidden, Errors: []googleapi.ErrorItem{{Reason: "insufficientPermissions"}}}, false},
+		{"connection reset", &url.Error{Op: "Post", URL: "https://example.com", Err: syscall.ECONNRESET}, true},
+		{"refresh token refused", tokenErr(http.StatusBadRequest), false},
+		{"token endpoint down", tokenErr(http.StatusServiceUnavailable), true},
+		{"cancelled", &url.Error{Op: "Get", URL: "https://example.com", Err: context.Canceled}, false},
+		{"plain error", errors.New("boom"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := retryable(tt.err); got != tt.want {
+				t.Errorf("retryable(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDoesNotRetryPermanentError(t *testing.T) {
 	f := newFakeGmail(t)
 	f.failStatus = http.StatusNotFound
@@ -540,6 +606,7 @@ func TestCancelledContextStopsRetrying(t *testing.T) {
 	f.failures["/messages"] = 10
 	p, _ := f.start()
 	p.backoff = []time.Duration{time.Hour, time.Hour, time.Hour}
+	p.quotaBackoff = []time.Duration{time.Hour, time.Hour, time.Hour}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
